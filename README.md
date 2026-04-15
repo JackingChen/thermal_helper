@@ -1,115 +1,119 @@
-# Thermal Expert QA Agent
+# CAD T — Thermal Design Assistant
 
-A Streamlit demo app that lets engineers query a thermal-design FAQ knowledge base using semantic search. Results are displayed in a chat interface with support for inline visualisation sub-windows.
-
----
-
-## Layout
-
-```
-┌─────────────────┬──────────────────────────────┐
-│  Project Files  │       Display window         │
-│  (sidebar)      │  chat history + inline figs  │
-│                 ├──────────────────────────────┤
-│                 │       Prompt window          │
-└─────────────────┴──────────────────────────────┘
-```
-
-- **Project Files (sidebar)** — browse and filter all 50 FAQ entries by category; click any to pre-fill the prompt.
-- **Display window** — scrollable chat history showing user questions and AI answer cards. Graphics (plots, 3-D views) appear as bordered inline sub-windows inside the AI response.
-- **Prompt window** — free-text input, Top-K selector, and similarity score toggle.
+A Streamlit-based live demo simulating an AI-assisted CAE/EE design workflow. The app presents a four-panel UI covering project management, a material library, an interactive design workspace (2D modeling, thermal heatmap, 3D preview), and a scripted AI chat assistant.
 
 ---
 
-## Data Source
+## Demo Flow
 
-`(AIC 0408) Ai for design_Thermal Expert System_FAQ v.1.xlsx`
+The demo walks through 11 scripted steps across two feature sets:
 
-| Column | Role |
-|---|---|
-| 編號 | ID |
-| 分類模組 | Category (架構 / 組件 / 風扇 / 模擬 / 流體 / 材料) |
-| 核心設計問題 (Question) | **Input** – indexed for retrieval |
-| 技術參考背景 (Problem Reference) | **Output** |
-| 專家建議答案 (Expert Answer) | **Output** |
-| 答案技術指標/設計準則 (Technical Guideline) | **Output** |
-| 參考資料 | **Output** |
+**Feature 1 — Smart Placement (Steps 1–5)**
+1. Open web app → 4-panel layout loads
+2. Select project `EE_PCB_demo0420` → 2D Modeling view renders
+3. Ask about CPU/heatsink spacing → AI returns placement impact analysis + recommendations
+4. Type `Apply optimized placement` → workspace animates component position updates (CPU shifts –2 mm, heatsink rotates 90°)
+5. Type `3D` → workspace switches to 3D preview image
 
-Row 1–2 are metadata/notes; data starts from row 3 (header) and row 4 onwards.
+**Feature 2 — Live Simulation (Steps 6–11)**
+6. Switch mode to Thermal Simulation → 2D heatmap renders (20–120 °C)
+7. Ask about chassis surface temperature → AI cites IEC 62368-1 limits from FAQ CSV
+8. Ask about fan/antenna interference → classified as RF/EMI, switches knowledge domain
+9. AI returns EMI source list + design recommendations from RF expert system
+10. Type `Apply layout adjustment` → fan module moves +5 mm, thermal re-simulation triggered
+11. Type `3D` → final 3D preview confirmation
 
 ---
 
 ## Architecture
 
 ```
-qa_agent/
-├── app.py             # Streamlit entry point – layout, session state, submission logic
-├── data_loader.py     # Reads xlsx, exposes column constants
-├── retriever.py       # FAQRetriever – sentence-transformer semantic search
-├── display.py         # render_chat_answer() – chat cards + inline sub-windows
+thermal_helper/
+├── app.py                  # Main Streamlit app — layout, routing, state
+├── chat_responses.py       # All scripted responses + keyword router
+├── qa_loader.py            # CSV loader + keyword-match FAQ retriever
+├── thermal_sim.py          # NumPy-based 2D temperature field generator
 ├── backends/
-│   ├── __init__.py    # BackendResult dataclass + KEYWORD_MAP + resolve_backend()
-│   ├── thermal.py     # 🌡️  Thermal computation backend (stub)
-│   └── placement.py   # 📦  Component placement backend (stub)
+│   ├── __init__.py         # BackendResult dataclass
+│   ├── placement.py        # Placement backend stub (future: solver)
+│   └── thermal.py          # Thermal backend stub (future: RC-network solver)
+├── data/
+│   ├── projects.json       # Project tree + component metadata + default positions
+│   └── (AIC 0408) Ai for design_Thermal Expert System_FAQ v.1.csv
+├── assets/
+│   └── ThermalOnPCB.png    # Static 3D preview image
+├── Dockerfile
+├── docker-compose.yml
 └── requirements.txt
 ```
 
-### Retrieval
+### Key design decisions
 
-Uses **`paraphrase-multilingual-MiniLM-L12-v2`** (sentence-transformers). All FAQ questions are embedded at startup and stored as normalised vectors. At query time, the user question is embedded and cosine similarity is computed against all question vectors. Top-K results are returned ranked by score.
+| Concern | Approach |
+|---|---|
+| Chat logic | Keyword regex routing in `chat_responses.py` — no live LLM calls |
+| Thermal simulation | In-process NumPy Gaussian field, `run_simulation()` → 100×150 array |
+| FAQ retrieval | CSV keyword-overlap scoring via `qa_loader.find_answer()` |
+| Workspace mutations | Stored in `st.session_state["component_positions"]`; workspace re-renders on rerun |
+| 3D preview | Static `st.image()` swap — no interactive 3D engine |
+| Future AI backends | `backends/placement.py` and `backends/thermal.py` stubs with `BackendResult` interface |
 
-To swap for a larger model, change `DEFAULT_MODEL` in `retriever.py`.
+---
 
-### Backend system
+## UI Panels
 
-When the top retrieval result matches a keyword (see `backends/KEYWORD_MAP`), the corresponding backend module is automatically imported and its `run(context)` function is called. The returned `BackendResult` (title + Plotly figure + summary) is rendered as an inline sub-window inside the AI chat bubble.
-
-**Current backends (stub state):**
-
-| Backend | Trigger keywords | Planned output |
+| Panel | Location | Description |
 |---|---|---|
-| `thermal` | 熱, 散熱, heat, thermal, rth, junction | RC-network temperature simulation |
-| `placement` | placement, layout, 擺放, 佈局, component, opening | PCB 3-D component layout colour view |
-
-To implement a backend: edit `backends/thermal.py` or `backends/placement.py`, replace the placeholder figure in the `run()` function with real solver output, and return a populated `BackendResult`.
-
----
-
-## Setup
-
-### Using the native Linux filesystem (recommended – faster I/O)
-
-```bash
-cd /home/project
-
-# Step 1 – install CPU-only torch first (avoids pulling CUDA packages)
-.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
-
-# Step 2 – install remaining dependencies
-.venv/bin/pip install streamlit openpyxl pandas scikit-learn plotly sentence-transformers
-```
-
-### Run
-
-```bash
-cd /home/project
-.venv/bin/streamlit run app.py
-```
-
-Open [http://localhost:8501](http://localhost:8501) in your browser.
+| **Project Manager** | Left top | Collapsible project tree; clicking a project loads its component positions |
+| **Material Library** | Left bottom | Component catalogue with TDP and Tcase_max values |
+| **Design Workspace** | Right top | Mode-switched view: Modeling / Thermal Simulation / 3D |
+| **Design Assistant** | Right bottom | Chat input + history; sends to `route_message()` |
 
 ---
 
-## Future Roadmap
+## Running
 
-- [ ] Replace `thermal.py` stub with real RC-network solver
-- [ ] Replace `placement.py` stub with PCB layout rule-checker / optimiser
-- [ ] Add `backends/cfd.py` for CFD airflow visualisation
-- [ ] Upgrade retriever to `BAAI/bge-m3` for higher accuracy
-- [ ] Add FAISS index for large corpus scaling
-- [ ] Stream AI responses token-by-token via `st.write_stream`
+### Docker (recommended)
 
+```bash
+# Build and start
+docker compose up -d
 
+# Access at
+http://<host>:8601
+```
 
-# ISSUE
-1. 按submit沒有反應
+The host directory is bind-mounted into the container (`. → /app`), so any file edits on the host are live immediately — Streamlit auto-reloads on save.
+
+### Local
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py --server.port 8501
+```
+
+---
+
+## Configuration
+
+**`data/projects.json`** — defines the project tree, material library, and default component positions (x, y, w, h) for each project's workspace layout.
+
+**`chat_responses.py`** — all scripted response strings are module-level constants at the top of the file; edit them here before a demo without touching routing logic.
+
+**`thermal_sim.py`** — Gaussian heat source parameters (position, spread, peak temperature) are in the `_COMPONENTS` dict; adjust to change the heatmap appearance.
+
+---
+
+## Dependencies
+
+| Package | Purpose |
+|---|---|
+| `streamlit >= 1.32` | UI framework |
+| `matplotlib` | 2D modeling and thermal heatmap rendering |
+| `numpy` | Temperature field simulation |
+| `pandas` | CSV FAQ loading |
+| `plotly` | Backend stub visualisations |
+| `scikit-learn` | Available for future semantic search |
+| `sentence-transformers` + `torch` | Available for future embedding-based retrieval |
+
+Base Docker image: `pytorch-transformer-gpu-emc` (Inventec internal registry) — provides CUDA + PyTorch pre-installed.

@@ -1,0 +1,122 @@
+{
+  "projects": [
+    {
+      "id": "ME-Placement-1041",
+      "label": "ME-Placement-1041",
+      "children": [
+        {
+          "id": "Heat-exchanger_Thermal_02",
+          "label": "Heat-exchanger_Thermal_02",
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "EE_PCB_demo0420",
+      "label": "EE_PCB_demo0420",
+      "children": []
+    }
+  ],
+  "components": {
+    "CPU": {
+      "children": [
+        {
+          "id": "Intel Core Ultra",
+          "label": "Intel Core Ultra",
+          "TDP_W": 125,
+          "Tcase_max_C": 100
+        },
+        {
+          "id": "AMD Ryzen 9000",
+          "label": "AMD Ryzen 9000",
+          "TDP_W": 65,
+          "Tcase_max_C": 95
+        }
+      ]
+    },
+    "GPU": {
+      "children": [
+        {
+          "id": "NVIDIA RTX 4090",
+          "label": "NVIDIA RTX 4090",
+          "TDP_W": 450,
+          "Tcase_max_C": 93
+        }
+      ]
+    },
+    "Memory": {
+      "children": [
+        {
+          "id": "DDR5-6400 32GB",
+          "label": "DDR5-6400 32GB",
+          "TDP_W": 5,
+          "Tcase_max_C": 85
+        }
+      ]
+    },
+    "Power Module": {
+      "children": [
+        {
+          "id": "48V DC-DC 300W",
+          "label": "48V DC-DC 300W",
+          "TDP_W": 15,
+          "Tcase_max_C": 105
+        }
+      ]
+    }
+  },
+  "default_component_positions": {
+    "EE_PCB_demo0420": {
+      "cpu": {
+        "x": 45.0,
+        "y": 35.0,
+        "w": 20,
+        "h": 16,
+        "label": "CPU",
+        "rotated": false
+      },
+      "heatsink": {
+        "x": 45.0,
+        "y": 35.0,
+        "w": 40,
+        "h": 36,
+        "label": "Heatsink",
+        "rotated": false
+      },
+      "fan": {
+        "x": 90.0,
+        "y": 60.0,
+        "w": 30,
+        "h": 24,
+        "label": "Fan",
+        "rotated": false
+      }
+    },
+    "ME-Placement-1041": {
+      "cpu": {
+        "x": 50.0,
+        "y": 30.0,
+        "w": 20,
+        "h": 16,
+        "label": "CPU",
+        "rotated": false
+      },
+      "heatsink": {
+        "x": 50.0,
+        "y": 30.0,
+        "w": 44,
+        "h": 40,
+        "label": "Heatsink",
+        "rotated": false
+      },
+      "fan": {
+        "x": 100.0,
+        "y": 65.0,
+        "w": 32,
+        "h": 24,
+        "label": "Fan",
+        "rotated": false
+      }
+    }
+  }
+}

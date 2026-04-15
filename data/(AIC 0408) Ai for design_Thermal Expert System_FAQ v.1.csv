@@ -1,0 +1,51 @@
+編號,分類模組,核心設計問題 (Question),技術參考背景 (Problem Reference),專家建議答案 (Expert Answer),答案技術指標/設計準則 (Technical Guideline),參考資料
+1,架構,D-case 進風開孔率建議值？,流力阻抗與進氣量平衡,建議維持在 40% - 60%。,需避開 1kHz-4kHz 嘯叫區；開孔率 ?=Aopen?/Atotal?。,Perforated Plate Resistance
+2,架構,風扇 Z-gap 最小值？,氣動噪音 (BPF) 抑制,扇葉頂部至外殼需至少 1.5mm。,Zgap?<1.0mm 時，靜壓損失將超過 15% 且噪音劇增。,Flotherm: Fan Installation Effects
+3,架構,什麼是熱瓶頸 (Bottleneck)？,熱阻路徑分析 (RC Network),系統中熱阻 (Rth?) 最大的環節。,通常位於 TIM1 (散熱膏) 或鰭片對空氣的對流熱阻 Rconv?。,Thermal Resistance Network
+4,架構,SoC Tj? 與 Tc? 差異？,半導體封裝規範 (JEDEC),Tj? 為內部核心溫度，Tc? 為殼溫。,公式：Tj?=Tc?+P?Ψjt?。設計 Margin 建議留 5-10°C。,JEDEC JESD51-2 Standard
+5,架構,散熱墊 (Pad) 壓縮率？,結構應力與熱接觸,理想壓縮率為 20% - 40%。,過度壓縮會導致矽油滲出 (Bleeding) 並造成 PCB 變形。,Bergquist TIM Guide
+6,組件,導熱管扁平化極限？,毛細結構 (Wick) 完整性,厚度不應低於原管徑的 2/3。,例如 D6 管扁平至 2.0mm 以下會導致 Q-max 急遽下降。,Aavid Heat Pipe Design
+7,組件,VC 運作的重力影響？,相變傳熱 (Two-phase),冷凝端在上時效能最佳 (Gravity-aided)。,在翻轉筆電中需考慮「反重力」狀態，效能可能下降 20%。,Vapor Chamber Orientation
+8,組件,鰭片間距 (Pitch) 準則？,邊界層 (Boundary Layer) 開發,建議介於 1.0mm - 1.3mm。,Pitch < 0.8mm 時，流阻增加斜率遠高於散熱面積增加斜率。,Optimal Fin Pitch Selection
+9,組件,什麼是 Pump-out 現象？,TIM 介面可靠度測試,散熱膏因熱脹冷縮被擠出接觸面。,建議改用高黏度膏或相變材料 (PCM) 解決此問題。,TIM Pump-out Analysis
+10,組件,石墨片橫向導熱特性？,平面擴熱 (Spreading),XY 平面導熱可達 1000+ W/mK。,但 Z 方向僅約 5 W/mK，需結合絕緣包覆防止短路。,Panasonic PGS Data
+11,風扇,風扇不對稱葉片目的？,心理聲學 (Psychoacoustics),破壞單一頻率共振，分散噪音。,讓噪音頻譜趨近「白噪音」，減少高頻刺耳感。,Acoustic of Fan Noise
+12,風扇,什麼是 PL2 功耗？,Intel/AMD 功率管理機制,短時間衝刺功耗 (Burst Power)。,散熱系統需能吸收 PL2 的熱衝擊而不觸發硬體過熱。,Intel Power Management
+13,風扇,機殼表面溫度限制？,安全法規 (IEC 62368-1),金屬 < 48°C / 塑膠 < 52°C。,工程內部規格通常更嚴格（如 C-case < 40°C）。,IEC 62368-1 Safety
+14,風扇,鰭片黑化處理效果？,輻射散熱 (Radiation),在強迫對流下效果 < 5%。,主要是視覺美觀考量，對實際散熱貢獻極微。,Emissivity Table
+15,模擬,網格劃分 Y+ 要求？,CFD 模擬精確度,近壁面網格需滿足湍流模型。,鰭片間隙建議至少 3-5 層網格以精確捕捉速度梯度。,Ansys Wall Functions
+16,模擬,液金 (Liquid Metal) 圍堰？,高階散熱材料應用,防止液金溢出腐蝕主機板。,必須搭配矽膠套或吸附棉，且不能用於鋁製底座。,Liquid Metal Reliability
+17,模擬,海拔高度對散熱影響？,環境邊界條件 (ASHRAE),空氣變稀薄，質量流量下降。,3000 公尺處的散熱能力較海平面下降約 12%。,ASHRAE Psychrometrics
+18,模擬,風道密封 (Air Leakage)？,系統流場完整性,任何 1mm 間隙都會導致效率大跌。,使用 Mylar 或 Sponge 確保風扇與鰭片「零間隙」對接。,Bypass Airflow Effects
+19,模擬,PCB 有效導熱率 (k)？,複合材料熱導係數,取決於銅箔層數與覆蓋率。,4 層板有效 kxy? 約 25 W/mK，需考慮 Via 強化。,Thermal Conductivity of PCB
+20,模擬,什麼是 Sone 值？,響度 (Loudness) 感官,人耳感受到的主觀聲音大小。,比起 dBA，Sone 更能反映使用者對風扇噪音的厭惡感。,ISO 532 Loudness
+21,流體,什麼是系統阻抗曲線？,AMCA 210 風洞測試標準,ΔP=k?Qn，描述空氣流動阻力。,筆電系統 n 值通常趨近 2 (湍流區)。,AMCA 210 Standard
+22,流體,風扇「失速區 (Stall)」？,Fan Characteristic Analysis,壓力增加但流量下降的非穩定區。,設計工作點需避開曲線中的「凹陷處」以防振動。,Fan Stall Analysis
+23,流體,並聯風扇的總風量？,Fluid Mechanics Fundamentals,同風壓下，流量加倍（理想狀態）。,實際因背壓增加，總風量僅增加 1.6-1.8 倍。,Fans in Parallel
+24,流體,什麼是 Pre-swirl？,Turbomachinery Design,進入風扇前的預旋流。,增加導流片可改善進氣角度，提升 5% 效率。,Inlet Swirl Effects
+25,流體,風扇葉片數量多為質數？,Acoustic Resonance Theory,避免各葉片與結構產生諧振。,"常用 31, 37, 41 片以分散噪音頻率。",Blade Pass Frequency
+26,流體,離心風扇 Tongue 間隙？,Scroll Housing Design,蝸殼出口處的尖端間隙。,間隙過小產生高頻音；過大則壓力流失。,Volute Tongue Geometry
+27,流體,反向旋轉風扇？,High-performance cooling,兩個風扇串聯且轉向相反。,可抵銷流場剩餘動能，極大化靜壓。,Counter-Rotating Efficiency
+28,流體,風扇 Bearings 壽命？,ISO 1940 (Vibration),FDB (液壓) > Ball (滾珠) > Sleeve。,筆電多選用 FDB 以兼顧噪音與 L10 壽命。,ISO 1940 Balancing
+29,組件,散熱模組漏風容忍度？,Thermal Module Assembly,鰭片與風扇間的縫隙。,超過 0.5mm 縫隙會導致 10% 效能損失。,Leakage in Notebook
+30,組件,什麼是 Dead Zone？,Airflow Distribution,風扇 Hub 正下方無氣流區域。,進風口設計應儘量對準葉片區而非 Hub。,Fan Hub Obstruction
+31,材料,導熱管毛細結構種類？,Heat Pipe Science (Faghri),燒結粉末 (Sintered) 最常見。,燒結結構具最強抗重力能力，適合筆電。,Faghri: Heat Pipe Science
+32,材料,VC 工作極限 (Dry-out)？,Dry-out Limit Analysis,液體回流速度趕不上蒸發速度。,增加支撐柱密度可提升強度，但縮減蒸汽空間。,Dry-out in Vapor Chamber
+33,材料,熱擴散阻力 (Spreading)？,Lee & Song (1995) Formula,熱從點源擴散到大面積的阻力。,使用 VC 可有效降低 Spreading Resistance。,Analytical Spreading Formula
+34,材料,相變材料 (PCM) 溫度？,Material Safety Data Sheet,固態轉液態的臨界點。,常用 45°C - 55°C 的 PCM 吸收瞬態熱能。,Rubitherm PCM Data
+35,材料,導熱管灌充量？,Manufacturing QC,工作流體（純水）的填充體積。,過多啟動慢；過少導致 Dry-out。,Filling Ratio Effects
+36,材料,鋁銅 CTE 差異？,Material Science Handbook,異質材料接合處的熱應力。,冷熱循環可能導致焊錫疲勞裂開。,MatWeb CTE Search
+37,材料,兩相流模擬？,Multiphase Flow Simulation,蒸汽與液體共存的流場。,CFD 模擬常用「有效導熱率」等效替代。,Modeling Heat Pipes
+38,材料,VC 內部支撐柱作用？,Structural Mechanics,抵禦內部真空產生的外部壓力。,配置會影響蒸汽流動路徑與阻力。,Vapor Chamber Analysis
+39,材料,導熱管彎折變形率？,Pipe Bending Standard,彎折處圓度 (Roundness) 保持。,變形率控制在 10% 內，否則流阻過大。,Copper Bending Standards
+40,材料,超薄 VC 蝕刻技術？,MEMS Fabrication,0.2mm 以下厚度的實現。,利用銅箔蝕刻微流道取代傳統粉末。,Etched Vapor Chambers
+41,模擬,網格獨立性測試？,ASME V&V 20 Standard,確保結果不隨網格數量改變。,誤差應控制在 1% - 2% 以內才視為收斂。,ASME V&V 20 Standard
+42,模擬,有效導熱率等效法？,Modeling Methodology,將複雜幾何簡化為單一立方體。,針對 PCB 或鰭片組節省計算量。,Modeling Methodology
+43,模擬,輻射係數 (Emissivity)？,Heat Transfer Textbooks,不同材質表面的輻射散熱。,陽極氧化鋁約 0.8；拋光銅僅約 0.05。,Emissivity Coefficients
+44,模擬,什麼是 CTM 模型？,DELPHI Methodology,晶片的簡化熱模型。,提供 Junction 到 Case/Board 的熱阻網路。,DELPHI Standard
+45,模擬,瞬態模擬時間步長？,CFD Numerical Stability,Δt 需滿足 Courant Number。,模擬開機瞬間通常需設定在 $10^{-3}$s 等級。,CFL Condition
+46,模擬,環境邊界 (Ambient)？,ISO 7726,模擬與實測的對比基準。,需紀錄濕度與氣壓，密度變化影響結果。,ISO 7726 Environment
+47,模擬,散熱膏熱阻模擬？,Interface Resistance,接觸面間的微小空氣隙。,公式：R=BLT/k+Rcontact?。,Interface Materials
+48,模擬,Local Refinement？,Meshing Techniques,針對發熱核心進行局部加密。,確保晶片邊緣等梯度區域有足夠解析。,Mesh Refinement Strategy
+49,模擬,湍流模型選擇？,Solver Help (k-w SST),筆電內部複雜流場計算。,筆電流場建議選用 k-omega SST 模型。,NASA SST Model
+50,模擬,模擬中如何考慮重力？,Natural Convection,浮力驅動的對流現象。,在待機（Passive）狀態下極其重要。,Boussinesq Buoyancy

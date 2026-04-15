@@ -1,0 +1,20 @@
+services:
+  thermal-helper:
+    build:
+      context: .
+      tags:
+        - thermal_helper
+    image: thermal_helper
+    container_name: thermal-helper
+    ports:
+      - "8601:8501"
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
