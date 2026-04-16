@@ -1,100 +1,152 @@
 """
 backends/placement.py
-──────────────────────
-Component placement computation backend (stub / future implementation).
+─────────────────────
+Primitive and high-level component placement operations.
 
-Entry point
-───────────
-    run(context: dict) -> BackendResult
+Primitives  (operate on a single component dict in-place)
+──────────
+    move_right(comp, delta)   comp["x"] += delta
+    move_left(comp, delta)    comp["x"] -= delta
+    move_down(comp, delta)    comp["y"] += delta   (Y increases downward)
+    move_up(comp, delta)      comp["y"] -= delta
+    rotate(comp)              toggles comp["rotated"]
 
-`context` keys (from FAQ retriever row + extras):
-    核心設計問題 (Question)          : str
-    技術參考背景 (Problem Reference)  : str
-    答案技術指標/設計準則 (Technical Guideline) : str
-    ... (all FAQ columns, see data_loader.py)
-    params : dict   (optional caller-supplied parameters)
+High-level helpers  (operate on a positions dict keyed by component name)
+─────────────────
+    move_component(positions, name, direction, delta_mm)
+        Dispatch to the correct primitive; returns True if the component existed.
 
-What this backend will do (TODO)
-──────────────────────────────────
-  - Accept PCB / chassis geometry and component list
-  - Run a placement optimisation or rule-check
-  - Build a Plotly 3-D figure: component layout colour view (like the
-    PCB Component Layout wireframe in the design spec)
-  - Return a BackendResult with the figure + placement report
+    apply_placement(positions)
+        Scripted Step-4 action: CPU –2 mm left, heatsink rotated.
 
-Current state: returns a clearly-labelled placeholder 3-D figure.
+    apply_layout(positions)
+        Scripted Step-10 action: fan +5 mm right.
+
+    apply_sequence(positions, steps)
+        Execute a list of move instructions sequentially.
+        steps = [{"component": "fan", "direction": "right", "delta": 5.0}, ...]
+
+All functions return the mutated positions dict so calls can be chained.
 """
 from __future__ import annotations
 
-import plotly.graph_objects as go
+# ── Primitives ─────────────────────────────────────────────────────────────────
 
-from backends import BackendResult
+def move_right(comp: dict, delta: float = 1.0) -> dict:
+    """Shift component right by *delta* mm (X increases rightward)."""
+    comp["x"] = round(comp["x"] + delta, 1)
+    return comp
 
 
-def run(context: dict) -> BackendResult:
+def move_left(comp: dict, delta: float = 1.0) -> dict:
+    """Shift component left by *delta* mm."""
+    comp["x"] = round(comp["x"] - delta, 1)
+    return comp
+
+
+def move_down(comp: dict, delta: float = 1.0) -> dict:
+    """Shift component downward by *delta* mm (Y increases downward)."""
+    comp["y"] = round(comp["y"] + delta, 1)
+    return comp
+
+
+def move_up(comp: dict, delta: float = 1.0) -> dict:
+    """Shift component upward by *delta* mm."""
+    comp["y"] = round(comp["y"] - delta, 1)
+    return comp
+
+
+def rotate(comp: dict) -> dict:
+    """Toggle the rotated flag on a component."""
+    comp["rotated"] = not comp.get("rotated", False)
+    return comp
+
+
+# ── Direction dispatch ─────────────────────────────────────────────────────────
+
+_DIRECTION_FN = {
+    "right": move_right,
+    "left":  move_left,
+    "down":  move_down,
+    "up":    move_up,
+}
+
+
+def move_component(
+    positions: dict,
+    name: str,
+    direction: str,
+    delta: float = 1.0,
+) -> bool:
     """
-    Placement backend entry point.
+    Move *name* in *direction* by *delta* mm.
 
-    Parameters
-    ----------
-    context : dict
-        Merged FAQ row + optional caller params under key 'params'.
+    Returns True if the component was found and moved, False otherwise.
+    *direction* must be one of: "right", "left", "up", "down".
+    """
+    comp = positions.get(name.lower())
+    if comp is None:
+        return False
+    fn = _DIRECTION_FN.get(direction.lower())
+    if fn is None:
+        raise ValueError(f"Unknown direction '{direction}'. Use: {list(_DIRECTION_FN)}")
+    fn(comp, delta)
+    return True
 
-    Returns
+
+# ── High-level scripted actions ────────────────────────────────────────────────
+
+def apply_placement(positions: dict) -> dict:
+    """
+    Scripted Step-4 optimised placement:
+      • CPU  → –2 mm left
+      • Heatsink → rotate 90°
+    """
+    move_component(positions, "cpu", "left", 2.0)
+    comp = positions.get("heatsink")
+    if comp is not None:
+        comp["rotated"] = True
+    return positions
+
+
+def apply_layout(positions: dict) -> dict:
+    """
+    Scripted Step-10 layout adjustment:
+      • Fan → +5 mm right
+    """
+    move_component(positions, "cpu", "right", 10.0)
+    move_component(positions, "fan", "down", 12.0)
+    move_component(positions, "heatsink", "up", 6.0)
+    return positions
+
+
+# ── Sequential move helper ─────────────────────────────────────────────────────
+
+def apply_sequence(positions: dict, steps: list[dict]) -> dict:
+    """
+    Execute a list of move instructions in order.
+
+    Each step dict:
+        {
+            "component": str,          # e.g. "fan", "cpu", "heatsink"
+            "direction": str,          # "right" | "left" | "up" | "down"
+            "delta":     float,        # mm (default 1.0 if omitted)
+        }
+
+    Example
     -------
-    BackendResult
+        steps = [
+            {"component": "fan",      "direction": "right", "delta": 5.0},
+            {"component": "cpu",      "direction": "left",  "delta": 2.0},
+            {"component": "heatsink", "direction": "up",    "delta": 3.0},
+        ]
+        apply_sequence(positions, steps)
     """
-    question = context.get("核心設計問題 (Question)", "")
-    params: dict = context.get("params", {})
-
-    fig = _build_placeholder_3d(question, params)
-
-    summary = (
-        "🔧 Placement backend is reserved for future implementation.\n"
-        f"Triggered by: {question!r}"
-    )
-
-    return BackendResult(
-        title="📦 Component Placement",
-        figure=fig,
-        summary=summary,
-        metadata={"params": params, "question": question},
-    )
-
-
-# ── Internal helpers ──────────────────────────────────────────────────────────
-
-def _build_placeholder_3d(question: str, params: dict) -> go.Figure:
-    """
-    Returns a labelled placeholder 3-D scatter figure.
-    Replace with real placement solver output (e.g. box meshes per component).
-    """
-    import numpy as np
-
-    rng = np.random.default_rng(42)
-    n = 12
-    x = rng.uniform(0, 10, n)
-    y = rng.uniform(0, 8, n)
-    z = rng.uniform(0, 3, n)
-    labels = [f"Comp-{i+1}" for i in range(n)]
-    colors = rng.integers(0, 10, n)
-
-    fig = go.Figure(data=[go.Scatter3d(
-        x=x, y=y, z=z,
-        mode="markers+text",
-        text=labels,
-        textposition="top center",
-        marker=dict(size=10, color=colors, colorscale="Turbo", opacity=0.85),
-    )])
-
-    fig.update_layout(
-        title="PCB Component Layout – Colour Coded View (stub)",
-        scene=dict(
-            xaxis_title="X (mm)",
-            yaxis_title="Y (mm)",
-            zaxis_title="Z (mm)",
-        ),
-        height=380,
-        margin=dict(l=0, r=0, t=40, b=0),
-    )
-    return fig
+    for step in steps:
+        move_component(
+            positions,
+            name=step["component"],
+            direction=step["direction"],
+            delta=float(step.get("delta", 1.0)),
+        )
+    return positions

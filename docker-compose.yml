@@ -10,6 +10,8 @@ services:
       - "8601:8501"
     volumes:
       - .:/app
+    environment:
+      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=poll
     restart: unless-stopped
     deploy:
       resources:

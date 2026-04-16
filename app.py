@@ -24,8 +24,11 @@ matplotlib.use("Agg")
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
 import streamlit as st
 
+from backends.placement import apply_placement as _placement_action
+from backends.placement import apply_layout as _layout_action
 from chat_responses import route_message
 from qa_loader import load_qa
 from thermal_sim import get_component_positions, run_simulation
@@ -120,25 +123,76 @@ def _load_projects() -> dict:
         return json.load(f)
 
 
+def _parse_geometry_array(items: list[dict]) -> dict:
+    """
+    Convert new array geometry format → internal positions dict.
+
+    Input  : list of {id, x, y (top-left), w, h, rotated (bit0), mapping (bit1), level}
+    Output : {comp_name: {x (centre), y (centre), w, h, label, rotated (bool)}}
+             plus special key "_board": {w, h} derived from edge_right / edge_top markers.
+
+    Rotation encoding:
+        angle = (rotated + mapping * 2) * 90 °CCW
+        90° / 270° swaps w and h (axis-aligned bounding box).
+    """
+    positions: dict = {}
+    board_w: float = 150.0
+    board_h: float = 100.0
+
+    for item in items:
+        name = item["id"]
+        # Edge markers define board extents — not rendered as components
+        if name.startswith("edge_"):
+            if name == "edge_right":
+                board_w = float(item["x"])
+            elif name == "edge_top":
+                board_h = float(item["y"])
+            continue
+
+        rot_bits = int(item.get("rotated", 0)) + int(item.get("mapping", 0)) * 2
+        angle = rot_bits * 90  # degrees CCW
+        w = float(item["w"])
+        h = float(item["h"])
+        if angle in (90, 270):
+            w, h = h, w  # swap for axis-aligned rotation
+
+        # JSON stores top-left; internal format uses centre
+        positions[name.lower()] = {
+            "x": float(item["x"]) + w / 2,
+            "y": float(item["y"]) + h / 2,
+            "w": w,
+            "h": h,
+            "label": item["id"],          # original case for display
+            "rotated": angle in (90, 270),
+        }
+
+    positions["_board"] = {"w": board_w, "h": board_h}
+    return positions
+
+
 @st.cache_data(show_spinner=False)
 def _load_extra_positions() -> dict:
     """
-    Scan data/*.json (excluding projects.json) and merge all
-    {project_id: {components}} dicts into a single lookup.
-    Files are written by vti_to_project.py.
+    Scan data/<project>/<project>.json subdirectories.
+    Supports both new array format (list) and legacy dict format.
     """
     merged: dict = {}
-    for p in sorted(_DATA_DIR.glob("*.json")):
-        if p.name == "projects.json":
+    for proj_dir in sorted(_DATA_DIR.iterdir()):
+        if not proj_dir.is_dir():
+            continue
+        json_file = proj_dir / f"{proj_dir.name}.json"
+        if not json_file.exists():
             continue
         try:
-            with open(p, encoding="utf-8") as f:
+            with open(json_file, encoding="utf-8") as f:
                 data = json.load(f)
-            # Each file is { project_id: { comp_name: {...} } }
-            for pid, comps in data.items():
-                merged[pid] = comps
+            if isinstance(data, list):
+                merged[proj_dir.name] = _parse_geometry_array(data)
+            elif isinstance(data, dict):
+                # Legacy dict format {comp_name: {...}}
+                merged[proj_dir.name] = data
         except Exception:
-            pass   # silently skip malformed files
+            pass
     return merged
 
 
@@ -177,12 +231,12 @@ def _get_positions(project: str | None) -> dict:
     if not project:
         return {}
     if project not in st.session_state["component_positions"]:
-        # 1. Try projects.json default_component_positions
-        defaults = _proj_data.get("default_component_positions", {})
-        pos = defaults.get(project)
-        # 2. Fall back to extra JSON files (written by vti_to_project.py)
+        # 1. Primary: data/<project>/<project>.json subdirectory files
+        pos = _extra_positions.get(project)
+        # 2. Fallback: projects.json default_component_positions (legacy)
         if pos is None:
-            pos = _extra_positions.get(project)
+            defaults = _proj_data.get("default_component_positions", {})
+            pos = defaults.get(project)
         st.session_state["component_positions"][project] = copy.deepcopy(pos or {})
     return st.session_state["component_positions"][project]
 
@@ -199,11 +253,15 @@ def _ensure_sim(project: str | None) -> np.ndarray | None:
 
 def _render_modeling(project: str, positions: dict) -> None:
     """2-D PCB component layout with matplotlib rectangles."""
+    # Board dimensions from _board key (set by _parse_geometry_array)
+    board_info = positions.get("_board", {})
+    board_w = float(board_info.get("w", 150))
+    board_h = float(board_info.get("h", 100))
+
     fig, ax = plt.subplots(figsize=(6, 4))
     fig.patch.set_facecolor("#0d1b2a")
     ax.set_facecolor("#0d1b2a")
 
-    board_w, board_h = 150, 100
     # PCB board outline
     board = mpatches.FancyBboxPatch(
         (0, 0), board_w, board_h,
@@ -218,8 +276,10 @@ def _render_modeling(project: str, positions: dict) -> None:
         "fan":      ("#2a9d8f", "#2a9d8f"),
     }
 
+    # Exclude internal metadata key before rendering
+    render_positions = {k: v for k, v in positions.items() if k != "_board"}
     # Draw larger components first so smaller ones (CPU) render on top
-    sorted_comps = sorted(positions.items(), key=lambda kv: kv[1]["w"] * kv[1]["h"], reverse=True)
+    sorted_comps = sorted(render_positions.items(), key=lambda kv: kv[1]["w"] * kv[1]["h"], reverse=True)
     for name, comp in sorted_comps:
         x, y = comp["x"] - comp["w"] / 2, comp["y"] - comp["h"] / 2
         fc, ec = colours.get(name, ("#6c757d", "#adb5bd"))
@@ -297,12 +357,92 @@ def _render_thermal(project: str, positions: dict) -> None:
     plt.close(fig)
 
 
-def _render_3d() -> None:
-    """Static 3-D preview image."""
-    if _ASSET_3D.exists():
-        st.image(str(_ASSET_3D), use_container_width=True)
-    else:
-        st.info("3D preview asset not found at assets/ThermalOnPCB.png")
+def _render_3d(project: str | None, positions: dict) -> None:
+    """Interactive 3-D plotly PCB component visualisation."""
+
+    # ── Board dimensions ──────────────────────────────────────────────────────
+    board_info = positions.get("_board", {})
+    board_w = float(board_info.get("w", 150))
+    board_h = float(board_info.get("h", 100))
+
+    # ── Per-component z-extents (mm) and colours ──────────────────────────────
+    _Z = {
+        "heatsink": (1.5, 20.0),
+        "cpu":      (1.5,  8.0),
+        "fan":      (1.5, 18.0),
+    }
+    _CLR = {
+        "heatsink": "#264653",
+        "cpu":      "#e9c46a",
+        "fan":      "#2a9d8f",
+    }
+
+    # ── Box mesh helper ───────────────────────────────────────────────────────
+    def _box(x0, y0, z0, x1, y1, z1, color, name):
+        """
+        Return a Mesh3d trace for one axis-aligned box.
+        Vertices (8): v0=(x0,y0,z0) … v7=(x1,y1,z1)
+        12 triangles covering all 6 faces.
+        """
+        vx = [x0,x1,x0,x1, x0,x1,x0,x1]
+        vy = [y0,y0,y1,y1, y0,y0,y1,y1]
+        vz = [z0,z0,z0,z0, z1,z1,z1,z1]
+        # face normals point outward
+        i_ = [0, 0,  4, 4,  0, 0,  2, 2,  0, 0,  1, 1]
+        j_ = [1, 3,  6, 7,  4, 5,  3, 7,  2, 6,  5, 7]
+        k_ = [3, 2,  7, 5,  5, 1,  7, 6,  6, 4,  7, 3]
+        return go.Mesh3d(
+            x=vx, y=vy, z=vz,
+            i=i_, j=j_, k=k_,
+            color=color, opacity=0.88,
+            name=name, showlegend=True,
+            flatshading=True,
+            lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3, roughness=0.5),
+            hovertemplate=(
+                f"<b>{name}</b><br>"
+                f"x: {x0:.1f}–{x1:.1f} mm<br>"
+                f"y: {y0:.1f}–{y1:.1f} mm<br>"
+                f"z: {z0:.1f}–{z1:.1f} mm<extra></extra>"
+            ),
+        )
+
+    traces: list[go.BaseTraceType] = []
+
+    # PCB board (thin green slab)
+    traces.append(_box(0, 0, 0, board_w, board_h, 1.5, "#0a3622", "PCB Board"))
+
+    # Components
+    render_positions = {k: v for k, v in positions.items() if k != "_board"}
+    for name, comp in render_positions.items():
+        cx, cy = comp["x"], comp["y"]
+        w, h    = comp["w"], comp["h"]
+        z0, z1  = _Z.get(name, (1.5, 6.0))
+        color   = _CLR.get(name, "#6c757d")
+        label   = comp.get("label", name.upper())
+        traces.append(_box(cx - w/2, cy - h/2, z0, cx + w/2, cy + h/2, z1, color, label))
+
+    fig = go.Figure(data=traces)
+    fig.update_layout(
+        scene=dict(
+            aspectmode="data",
+            bgcolor="#0d1b2a",
+            xaxis=dict(title="X (mm)", color="#adb5bd", gridcolor="#1d3557", showbackground=False),
+            yaxis=dict(title="Y (mm)", color="#adb5bd", gridcolor="#1d3557", showbackground=False),
+            zaxis=dict(title="Z (mm)", color="#adb5bd", gridcolor="#1d3557", showbackground=False),
+            camera=dict(eye=dict(x=1.6, y=-1.6, z=1.2)),
+        ),
+        paper_bgcolor="#16213e",
+        plot_bgcolor="#16213e",
+        font=dict(color="#e0e0e0", size=11),
+        legend=dict(bgcolor="#0d1b2a", bordercolor="#0f3460", borderwidth=1),
+        title=dict(
+            text=f"{project or ''}  |  3D Preview",
+            font=dict(color="#adb5bd", size=11),
+        ),
+        margin=dict(l=0, r=0, t=40, b=0),
+        height=450,
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_flow_geometry() -> None:
@@ -319,12 +459,15 @@ def _render_flow_geometry() -> None:
     )
 
     with tab_iso:
-        st.image(str(_ASSET_FLOW_GEO), use_container_width=True,
-                 caption="Surface geometry coloured by pressure (Pa)")
+        if _ASSET_FLOW_GEO.exists():
+            st.image(str(_ASSET_FLOW_GEO),
+                     caption="Surface geometry coloured by pressure (Pa)")
+        else:
+            st.info("Geometry image not found.")
 
     with tab_stream:
         if _ASSET_FLOW_LINES.exists():
-            st.image(str(_ASSET_FLOW_LINES), use_container_width=True,
+            st.image(str(_ASSET_FLOW_LINES),
                      caption="Velocity streamlines seeded from inlet face")
         else:
             st.info("Streamline image not found — re-run cell 6 in vti_render.ipynb.")
@@ -344,7 +487,7 @@ def render_workspace() -> None:
     positions = _get_positions(project)
 
     if mode == "3D":
-        _render_3d()
+        _render_3d(project, positions)
     elif mode == "Thermal Simulation":
         if project:
             _render_thermal(project, positions)
@@ -362,21 +505,14 @@ def render_workspace() -> None:
 # ── Workspace action handlers ──────────────────────────────────────────────────
 
 def _apply_placement(project: str) -> None:
-    """Shift CPU left 2 mm; mark heatsink as rotated."""
-    positions = _get_positions(project)
-    if "cpu" in positions:
-        positions["cpu"]["x"] = round(positions["cpu"]["x"] - 2.0, 1)
-    if "heatsink" in positions:
-        positions["heatsink"]["rotated"] = True
-    # Invalidate sim cache so next thermal render is fresh
+    """Scripted Step-4: delegate to backends.placement."""
+    _placement_action(_get_positions(project))
     st.session_state["sim_data"] = None
 
 
 def _apply_layout(project: str) -> None:
-    """Move fan module +5 mm to the right; invalidate sim cache."""
-    positions = _get_positions(project)
-    if "fan" in positions:
-        positions["fan"]["x"] = round(positions["fan"]["x"] + 5.0, 1)
+    """Scripted Step-10: delegate to backends.placement."""
+    _layout_action(_get_positions(project))
     st.session_state["sim_data"] = None
 
 

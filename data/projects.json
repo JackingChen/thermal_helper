@@ -65,7 +65,8 @@
       ]
     }
   },
-  "default_component_positions": {
+  "_default_component_positions_MIGRATED": {
+    "_note": "Positions moved to data/<project>/<project>.json — see placement.md",
     "EE_PCB_demo0420": {
       "cpu": {
         "x": 45.0,
