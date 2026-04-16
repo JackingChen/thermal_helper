@@ -5,3 +5,6 @@ __pycache__/
 .streamlit/secrets.toml
 assets/grid_inference_flow.vti
 assets/*.vti
+# API credentials — never commit
+api_information.txt
+.env

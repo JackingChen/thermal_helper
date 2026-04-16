@@ -16,8 +16,15 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import time
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 import matplotlib
 matplotlib.use("Agg")
@@ -30,6 +37,7 @@ import streamlit as st
 from backends.placement import apply_placement as _placement_action
 from backends.placement import apply_layout as _layout_action
 from backends.placement import execute_instruction as _exec_placement
+from backends.llm_backend import call_azure_llm
 from chat_responses import route_message
 from qa_loader import load_qa
 from thermal_sim import get_component_positions, run_simulation
@@ -223,6 +231,7 @@ def _init_state() -> None:
     defaults = {
         "selected_project":    None,
         "mode":                "Modeling",   # "Modeling" | "Thermal Simulation" | "3D"
+        "chat_mode":           "AI Assistant",   # "Scripted" | "AI Assistant"
         "chat_history":        [],           # list of {"role": "user"|"assistant", "text": str}
         "component_positions": {},           # mutable copy of default positions
         "sim_data":            None,         # cached numpy array
@@ -293,17 +302,20 @@ def _render_modeling(project: str, positions: dict) -> None:
     # Draw larger components first so smaller ones (CPU) render on top
     sorted_comps = sorted(render_positions.items(), key=lambda kv: kv[1]["w"] * kv[1]["h"], reverse=True)
     for name, comp in sorted_comps:
-        x, y = comp["x"] - comp["w"] / 2, comp["y"] - comp["h"] / 2
+        # Apply runtime rotation: swap w/h when rotated flag is set
+        w = comp["h"] if comp.get("rotated") else comp["w"]
+        h = comp["w"] if comp.get("rotated") else comp["h"]
+        x, y = comp["x"] - w / 2, comp["y"] - h / 2
         fc, ec = colours.get(name, ("#6c757d", "#adb5bd"))
         rect = mpatches.FancyBboxPatch(
-            (x, y), comp["w"], comp["h"],
+            (x, y), w, h,
             boxstyle="square,pad=0.5", linewidth=1,
             edgecolor=ec, facecolor=fc, alpha=0.85,
         )
         ax.add_patch(rect)
         label = comp.get("label", name.upper())
         # Offset CPU label upward slightly so it doesn't overlap Heatsink label
-        y_offset = -comp["h"] * 0.18 if name == "heatsink" else 0
+        y_offset = -h * 0.18 if name == "heatsink" else 0
         ax.text(
             comp["x"], comp["y"] + y_offset, label,
             ha="center", va="center",
@@ -549,12 +561,29 @@ def _typewriter(placeholder, lines: list[str], delay: float = 0.35) -> None:
 def _handle_chat(user_input: str) -> None:
     project = st.session_state["selected_project"]
     mode    = st.session_state["mode"]
+    chat_mode = st.session_state["chat_mode"]
 
     # Log user message
     st.session_state["chat_history"].append({"role": "user", "text": user_input})
 
-    # Route
-    response_text, action = route_message(user_input, mode, _qa_data)
+    # Route — scripted or LLM
+    if chat_mode == "AI Assistant":
+        positions = _get_positions(project) if project else {}
+        with st.spinner("AI Assistant is thinking…"):
+            status_box = st.empty()
+            status_box.markdown(
+                "_Sending geometry context and chat history to Azure OpenAI…_"
+            )
+            response_text, action = call_azure_llm(
+                user_input,
+                st.session_state["chat_history"],
+                positions,
+                mode,
+            )
+            status_box.markdown("_Parsing response…_")
+            status_box.empty()
+    else:
+        response_text, action = route_message(user_input, mode, _qa_data)
 
     # Execute workspace actions
     if isinstance(action, dict) and project:
@@ -662,7 +691,7 @@ with right_col:
     st.markdown('<div class="panel-title">Design Workspace</div>', unsafe_allow_html=True)
 
     # Mode switcher
-    mode_options = ["Modeling", "Thermal Simulation", "3D", "Flow Geometry"]
+    mode_options = ["Modeling", "Thermal Simulation", "3D"]
     current_mode_idx = mode_options.index(st.session_state["mode"])
     chosen_mode = st.radio(
         label="Mode",
@@ -683,7 +712,23 @@ with right_col:
 
     # Design Assistant panel
     st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-title">Design Assistant</div>', unsafe_allow_html=True)
+
+    # Header row: title + mode toggle
+    hdr_col, toggle_col = st.columns([2, 1])
+    with hdr_col:
+        st.markdown('<div class="panel-title">Design Assistant</div>', unsafe_allow_html=True)
+    with toggle_col:
+        chosen_chat_mode = st.radio(
+            "chat_mode_radio",
+            options=["Scripted", "AI Assistant"],
+            index=0 if st.session_state["chat_mode"] == "Scripted" else 1,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="chat_mode_radio",
+        )
+        if chosen_chat_mode != st.session_state["chat_mode"]:
+            st.session_state["chat_mode"] = chosen_chat_mode
+            st.rerun()
 
     # Chat history display
     history = st.session_state["chat_history"]
