@@ -29,6 +29,7 @@ import streamlit as st
 
 from backends.placement import apply_placement as _placement_action
 from backends.placement import apply_layout as _layout_action
+from backends.placement import execute_instruction as _exec_placement
 from chat_responses import route_message
 from qa_loader import load_qa
 from thermal_sim import get_component_positions, run_simulation
@@ -139,6 +140,13 @@ def _parse_geometry_array(items: list[dict]) -> dict:
     board_w: float = 150.0
     board_h: float = 100.0
 
+    # Only render the highest level present (avoids duplicate level 7 + 8 overlaps)
+    non_edge = [it for it in items if not it["id"].startswith("edge_")]
+    if non_edge:
+        max_level = max(int(it.get("level", 0)) for it in non_edge)
+    else:
+        max_level = 0
+
     for item in items:
         name = item["id"]
         # Edge markers define board extents — not rendered as components
@@ -147,6 +155,10 @@ def _parse_geometry_array(items: list[dict]) -> dict:
                 board_w = float(item["x"])
             elif name == "edge_top":
                 board_h = float(item["y"])
+            continue
+
+        # Skip levels below the highest
+        if int(item.get("level", 0)) < max_level:
             continue
 
         rot_bits = int(item.get("rotated", 0)) + int(item.get("mapping", 0)) * 2
@@ -290,11 +302,10 @@ def _render_modeling(project: str, positions: dict) -> None:
         )
         ax.add_patch(rect)
         label = comp.get("label", name.upper())
-        suffix = " [rotated]" if comp.get("rotated") else ""
         # Offset CPU label upward slightly so it doesn't overlap Heatsink label
         y_offset = -comp["h"] * 0.18 if name == "heatsink" else 0
         ax.text(
-            comp["x"], comp["y"] + y_offset, f"{label}{suffix}",
+            comp["x"], comp["y"] + y_offset, label,
             ha="center", va="center",
             fontsize=7, color="white", fontweight="bold",
         )
@@ -516,6 +527,12 @@ def _apply_layout(project: str) -> None:
     st.session_state["sim_data"] = None
 
 
+def _apply_instruction(project: str, instruction: dict) -> None:
+    """Apply any instruction dict (from LLM or scripted preset) to the current project."""
+    _exec_placement(_get_positions(project), instruction)
+    st.session_state["sim_data"] = None
+
+
 # ── Progress animation helper ──────────────────────────────────────────────────
 
 def _typewriter(placeholder, lines: list[str], delay: float = 0.35) -> None:
@@ -540,10 +557,8 @@ def _handle_chat(user_input: str) -> None:
     response_text, action = route_message(user_input, mode, _qa_data)
 
     # Execute workspace actions
-    if action == "apply_placement" and project:
-        _apply_placement(project)
-    elif action == "apply_layout" and project:
-        _apply_layout(project)
+    if isinstance(action, dict) and project:
+        _apply_instruction(project, action)
     elif action == "switch_3d":
         st.session_state["mode"] = "3D"
     elif action == "switch_thermal":

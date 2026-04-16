@@ -3,30 +3,47 @@ backends/placement.py
 ─────────────────────
 Primitive and high-level component placement operations.
 
-Primitives  (operate on a single component dict in-place)
-──────────
-    move_right(comp, delta)   comp["x"] += delta
-    move_left(comp, delta)    comp["x"] -= delta
-    move_down(comp, delta)    comp["y"] += delta   (Y increases downward)
-    move_up(comp, delta)      comp["y"] -= delta
-    rotate(comp)              toggles comp["rotated"]
+Instruction schema (for LLM / JSON-driven moves)
+─────────────────────────────────────────────────
+A placement instruction is a plain dict:
 
-High-level helpers  (operate on a positions dict keyed by component name)
+    {
+        "action": "move_sequence",          # required — see ACTIONS below
+        "steps": [                          # for move_sequence
+            {
+                "component": "fan",         # component name (case-insensitive)
+                "direction": "right",       # "right" | "left" | "up" | "down"
+                "delta": 5.0               # mm (default 1.0 if omitted)
+            },
+            {
+                "component": "heatsink",
+                "rotate": true              # set rotated flag instead of move
+            }
+        ]
+    }
+
+Supported actions
 ─────────────────
-    move_component(positions, name, direction, delta_mm)
-        Dispatch to the correct primitive; returns True if the component existed.
+    "move_sequence"   — execute steps list (default for LLM responses)
+    "apply_placement" — run the built-in optimised-placement preset
+    "apply_layout"    — run the built-in layout-adjustment preset
 
-    apply_placement(positions)
-        Scripted Step-4 action: CPU –2 mm left, heatsink rotated.
+Entry points
+────────────
+    execute_instruction(positions, instruction)
+        Accept a dict (e.g. parsed LLM JSON) and apply it.
 
-    apply_layout(positions)
-        Scripted Step-10 action: fan +5 mm right.
+    apply_placement(positions)   apply_layout(positions)
+        Convenience wrappers around execute_instruction with built-in presets.
 
     apply_sequence(positions, steps)
-        Execute a list of move instructions sequentially.
-        steps = [{"component": "fan", "direction": "right", "delta": 5.0}, ...]
+        Low-level: run a steps list directly.
 
-All functions return the mutated positions dict so calls can be chained.
+Primitives
+──────────
+    move_right / move_left / move_up / move_down (comp, delta)
+    rotate(comp)
+    move_component(positions, name, direction, delta)
 """
 from __future__ import annotations
 
@@ -94,59 +111,106 @@ def move_component(
     return True
 
 
-# ── High-level scripted actions ────────────────────────────────────────────────
-
-def apply_placement(positions: dict) -> dict:
-    """
-    Scripted Step-4 optimised placement:
-      • CPU  → –2 mm left
-      • Heatsink → rotate 90°
-    """
-    move_component(positions, "cpu", "left", 2.0)
-    comp = positions.get("heatsink")
-    if comp is not None:
-        comp["rotated"] = True
-    return positions
-
-
-def apply_layout(positions: dict) -> dict:
-    """
-    Scripted Step-10 layout adjustment:
-      • Fan → +5 mm right
-    """
-    move_component(positions, "cpu", "right", 10.0)
-    move_component(positions, "fan", "down", 12.0)
-    move_component(positions, "heatsink", "up", 6.0)
-    return positions
-
-
 # ── Sequential move helper ─────────────────────────────────────────────────────
 
 def apply_sequence(positions: dict, steps: list[dict]) -> dict:
     """
-    Execute a list of move instructions in order.
+    Execute a list of step dicts in order.
 
-    Each step dict:
-        {
-            "component": str,          # e.g. "fan", "cpu", "heatsink"
-            "direction": str,          # "right" | "left" | "up" | "down"
-            "delta":     float,        # mm (default 1.0 if omitted)
-        }
-
-    Example
-    -------
-        steps = [
-            {"component": "fan",      "direction": "right", "delta": 5.0},
-            {"component": "cpu",      "direction": "left",  "delta": 2.0},
-            {"component": "heatsink", "direction": "up",    "delta": 3.0},
-        ]
-        apply_sequence(positions, steps)
+    Each step:
+        {"component": str, "direction": str, "delta": float}   — move
+        {"component": str, "rotate": true}                      — toggle rotation
     """
     for step in steps:
-        move_component(
-            positions,
-            name=step["component"],
-            direction=step["direction"],
-            delta=float(step.get("delta", 1.0)),
-        )
+        name = step["component"]
+        if step.get("rotate"):
+            comp = positions.get(name.lower())
+            if comp is not None:
+                comp["rotated"] = True
+        else:
+            move_component(
+                positions,
+                name=name,
+                direction=step["direction"],
+                delta=float(step.get("delta", 1.0)),
+            )
     return positions
+
+
+# ── Built-in preset data ───────────────────────────────────────────────────────
+# Stored as data so LLM can produce the same format to override them.
+
+_PRESET_PLACEMENT: dict = {
+    "action": "move_sequence",
+    "label": "Optimised placement (Step 4)",
+    "steps": [
+        {"component": "cpu",      "direction": "left", "delta": 2.0},
+        {"component": "heatsink", "rotate": True},
+    ],
+}
+
+_PRESET_LAYOUT: dict = {
+    "action": "move_sequence",
+    "label": "Layout adjustment (Step 10)",
+    "steps": [
+        {"component": "cpu",      "direction": "right", "delta": 10.0},
+        {"component": "fan",      "direction": "down",  "delta": 12.0},
+        {"component": "heatsink", "direction": "up",    "delta": 6.0},
+    ],
+}
+
+_PRESETS: dict[str, dict] = {
+    "apply_placement": _PRESET_PLACEMENT,
+    "apply_layout":    _PRESET_LAYOUT,
+}
+
+
+# ── Main entry point ───────────────────────────────────────────────────────────
+
+def execute_instruction(positions: dict, instruction: dict) -> dict:
+    """
+    Apply a placement instruction dict to *positions*.
+
+    The *instruction* dict is the canonical format for LLM responses:
+
+        {
+            "action": "move_sequence",
+            "steps": [
+                {"component": "fan", "direction": "right", "delta": 5.0},
+                {"component": "heatsink", "rotate": true}
+            ]
+        }
+
+    Named preset shortcuts are also accepted:
+        {"action": "apply_placement"}
+        {"action": "apply_layout"}
+
+    Returns the mutated positions dict.
+    """
+    action = instruction.get("action", "move_sequence")
+
+    # Resolve named presets to their step lists
+    if action in _PRESETS:
+        instruction = _PRESETS[action]
+        action = "move_sequence"
+
+    if action == "move_sequence":
+        steps = instruction.get("steps", [])
+        apply_sequence(positions, steps)
+    else:
+        raise ValueError(f"Unknown placement action '{action}'.")
+
+    return positions
+
+
+# ── Convenience wrappers ───────────────────────────────────────────────────────
+
+def apply_placement(positions: dict) -> dict:
+    """Run the built-in optimised-placement preset."""
+    return execute_instruction(positions, {"action": "apply_placement"})
+
+
+def apply_layout(positions: dict) -> dict:
+    """Run the built-in layout-adjustment preset."""
+    return execute_instruction(positions, {"action": "apply_layout"})
+

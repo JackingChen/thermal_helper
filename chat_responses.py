@@ -13,9 +13,8 @@ Returns
 
 workspace_action is one of:
     None               – no workspace change
-    "apply_placement"  – shift CPU left 2 mm, rotate heatsink
+    dict               – placement instruction (passed to execute_instruction)
     "switch_3d"        – swap workspace to 3D image
-    "apply_layout"     – move fan module +5 mm right
     "switch_thermal"   – switch mode to Thermal Simulation
 """
 from __future__ import annotations
@@ -23,6 +22,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from backends.placement import _PRESET_PLACEMENT, _PRESET_LAYOUT
 from qa_loader import find_answer, load_qa
 
 
@@ -146,10 +146,10 @@ def route_message(
 
     # ── Exact / near-exact script triggers ────────────────────────────────────
     if _match(txt, r"apply optimized placement", r"apply.*placement"):
-        return _STEP4_PLACEMENT_PROGRESS, "apply_placement"
+        return _STEP4_PLACEMENT_PROGRESS, _PRESET_PLACEMENT
 
     if _match(txt, r"apply layout adjustment", r"apply.*layout"):
-        return _STEP10_LAYOUT_PROGRESS, "apply_layout"
+        return _STEP10_LAYOUT_PROGRESS, _PRESET_LAYOUT
 
     if _match(txt, r"\b3[Dd]\b", r"switch.*3[Dd]", r"3[Dd].*preview",
               r"switch to 3d", r"切換.*3D", r"3D.*確認"):
