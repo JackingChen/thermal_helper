@@ -214,3 +214,31 @@ def apply_layout(positions: dict) -> dict:
     """Run the built-in layout-adjustment preset."""
     return execute_instruction(positions, {"action": "apply_layout"})
 
+
+# ── Constraint checking ────────────────────────────────────────────────────────
+
+def check_overlaps(positions: dict) -> list[tuple[str, str]]:
+    """
+    Return list of (name_a, name_b) component pairs whose bounding boxes overlap.
+
+    Ignores the special ``_board`` metadata key and zero-size components.
+    """
+    comps = [
+        (k, v) for k, v in positions.items()
+        if k != "_board" and v.get("w", 0) > 0 and v.get("h", 0) > 0
+    ]
+    pairs: list[tuple[str, str]] = []
+    for i, (na, a) in enumerate(comps):
+        wa = a["h"] if a.get("rotated") else a["w"]
+        ha = a["w"] if a.get("rotated") else a["h"]
+        ax0, ax1 = a["x"] - wa / 2, a["x"] + wa / 2
+        ay0, ay1 = a["y"] - ha / 2, a["y"] + ha / 2
+        for nb, b in comps[i + 1:]:
+            wb = b["h"] if b.get("rotated") else b["w"]
+            hb = b["w"] if b.get("rotated") else b["h"]
+            bx0, bx1 = b["x"] - wb / 2, b["x"] + wb / 2
+            by0, by1 = b["y"] - hb / 2, b["y"] + hb / 2
+            if ax0 < bx1 and ax1 > bx0 and ay0 < by1 and ay1 > by0:
+                pairs.append((na, nb))
+    return pairs
+

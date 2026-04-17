@@ -30,6 +30,24 @@ import plotly.graph_objects as go
 
 from backends import BackendResult
 
+# ── Component thermal defaults ─────────────────────────────────────────────────
+# Default steady-state temperatures (°C) used for Thermal 3D colouring.
+# Keys are lowercase component names (matched case-insensitively in app.py).
+COMPONENT_TEMPS: dict[str, float] = {
+    "cpu":      80.0,
+    "heatsink": 55.0,
+    "fan":      35.0,
+    "ssd":      50.0,
+    "ddr":      45.0,
+    "ddr4":     45.0,
+    "ddr5":     45.0,
+    "pcie":     40.0,
+    "vrm":      65.0,
+    "power":    45.0,
+}
+TEMP_VMIN: float = 20.0
+TEMP_VMAX: float = 120.0
+
 
 def run(context: dict) -> BackendResult:
     """

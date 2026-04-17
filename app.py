@@ -38,6 +38,10 @@ from PIL import Image as _PILImage
 from backends.placement import apply_placement as _placement_action
 from backends.placement import apply_layout as _layout_action
 from backends.placement import execute_instruction as _exec_placement
+from backends.placement import check_overlaps as _check_overlaps
+from backends.thermal import COMPONENT_TEMPS as _COMPONENT_TEMPS
+from backends.thermal import TEMP_VMIN as _TEMP_VMIN
+from backends.thermal import TEMP_VMAX as _TEMP_VMAX
 from backends.llm_backend import call_azure_llm
 from chat_responses import route_message
 from qa_loader import load_qa
@@ -74,14 +78,14 @@ st.markdown(
     header[data-testid="stHeader"], footer { display: none !important; }
 
     /* ── panel cards ── */
-    .panel-card {
-        background: #16213e;
-        border: 1px solid #0f3460;
-        border-radius: 8px;
-        padding: 12px 14px;
-        margin-bottom: 10px;
-        min-height: 60px;
-    }
+    # .panel-card {
+    #     background: #16213e;
+    #     border: 1px solid #0f3460;
+    #     border-radius: 8px;
+    #     padding: 12px 14px;
+    #     margin-bottom: 10px;
+    #     min-height: 2px;
+    # }
     .panel-title {
         color: #e94560;
         font-size: 0.85rem;
@@ -289,6 +293,8 @@ def _init_state() -> None:
         "component_positions": {},           # mutable copy of default positions
         "sim_data":            None,         # cached numpy array
         "locked":              False,        # disable controls mid-demo
+        "thermal_3d":          False,        # True when 3D was triggered from Thermal Simulation mode
+        "chat_feedback":       {},           # {msg_index: "like" | "dislike"}
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -315,11 +321,20 @@ def _get_positions(project: str | None) -> dict:
     return st.session_state["component_positions"][project]
 
 
-def _ensure_sim(project: str | None) -> np.ndarray | None:
+def _ensure_sim(project: str | None, positions: dict | None = None) -> np.ndarray | None:
     if not project:
         return None
     if st.session_state["sim_data"] is None:
-        st.session_state["sim_data"] = run_simulation(project)
+        board_info = (positions or {}).get("_board", {})
+        board_w = float(board_info.get("w", 150))
+        board_h = float(board_info.get("h", 100))
+        st.session_state["sim_data"] = run_simulation(
+            project,
+            live_positions=positions,
+            component_temps=_COMPONENT_TEMPS,
+            board_w=board_w,
+            board_h=board_h,
+        )
     return st.session_state["sim_data"]
 
 
@@ -372,7 +387,8 @@ def _render_modeling(project: str, positions: dict) -> None:
         icon_arr = _find_icon(name, label, icons)
         if icon_arr is not None and w > 0 and h > 0:
             img_float = icon_arr.astype(float) / 255.0
-            ax.imshow(img_float, extent=[x, x + w, y, y + h],
+            # extent=[left, right, bottom, top]; with inverted y-axis bottom=y+h, top=y
+            ax.imshow(img_float, extent=[x, x + w, y + h, y],
                       aspect="auto", zorder=3, interpolation="bilinear")
         # Offset CPU label upward slightly so it doesn't overlap Heatsink label
         y_offset = -h * 0.18 if name == "heatsink" else 0
@@ -382,10 +398,23 @@ def _render_modeling(project: str, positions: dict) -> None:
             fontsize=7, color="white", fontweight="bold", zorder=4,
         )
 
-    ax.set_xlim(-5, board_w + 5)
-    ax.set_ylim(-5, board_h + 5)
+    # Canvas outer boundary (max workspace, 10% margin beyond PCB)
+    margin_x, margin_y = board_w * 0.10, board_h * 0.10
+    outer = mpatches.FancyBboxPatch(
+        (-margin_x, -margin_y), board_w + 2 * margin_x, board_h + 2 * margin_y,
+        boxstyle="square,pad=0", linewidth=1, linestyle="--",
+        edgecolor="#444466", facecolor="none",
+    )
+    ax.add_patch(outer)
+
+    ax.set_xlim(-margin_x - 2, board_w + margin_x + 2)
+    # Invert Y so (0,0) is top-left — matches PCB coordinate system (Y increases downward)
+    ax.set_ylim(board_h + margin_y + 2, -margin_y - 2)
     ax.set_aspect("equal")
-    ax.set_title(f"{project}  |  Mode: Modeling", color="#adb5bd", fontsize=9)
+    ax.set_xlabel("X (mm)", color="#adb5bd", fontsize=7)
+    ax.set_ylabel("Y (mm)", color="#adb5bd", fontsize=7)
+    ax.set_title(f"{project}  |  Mode: Modeling  [{board_w:.0f} × {board_h:.0f} mm]",
+                 color="#adb5bd", fontsize=9)
     ax.tick_params(colors="#555")
     for spine in ax.spines.values():
         spine.set_edgecolor("#1d3557")
@@ -394,10 +423,30 @@ def _render_modeling(project: str, positions: dict) -> None:
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
 
+    # ── Overlap & out-of-bounds warnings ──────────────────────────────────────
+    render_only = {k: v for k, v in positions.items() if k != "_board"}
+    overlaps = _check_overlaps(render_only)
+    if overlaps:
+        names = ", ".join(f"**{a}** & **{b}**" for a, b in overlaps[:4])
+        st.warning(f"⚠️ Component overlap detected: {names}")
+    out_of_bounds = []
+    for name, comp in render_only.items():
+        cw = comp["h"] if comp.get("rotated") else comp["w"]
+        ch = comp["w"] if comp.get("rotated") else comp["h"]
+        if (comp["x"] - cw / 2 < 0 or comp["x"] + cw / 2 > board_w
+                or comp["y"] - ch / 2 < 0 or comp["y"] + ch / 2 > board_h):
+            out_of_bounds.append(name)
+    if out_of_bounds:
+        st.warning(f"⚠️ Component(s) outside PCB boundary: **{', '.join(out_of_bounds)}**")
+
 
 def _render_thermal(project: str, positions: dict) -> None:
     """2-D thermal heatmap with component annotations."""
-    sim = _ensure_sim(project)
+    board_info = positions.get("_board", {})
+    board_w = float(board_info.get("w", 150))
+    board_h = float(board_info.get("h", 100))
+
+    sim = _ensure_sim(project, positions)
     if sim is None:
         st.warning("No simulation data — select a project first.")
         return
@@ -409,7 +458,7 @@ def _render_thermal(project: str, positions: dict) -> None:
     img = ax.imshow(
         sim, cmap="hot", origin="upper",
         vmin=20, vmax=120,
-        extent=[0, 150, 100, 0],
+        extent=[0, board_w, board_h, 0],
         aspect="auto",
     )
     cbar = fig.colorbar(img, ax=ax, fraction=0.03, pad=0.02)
@@ -417,9 +466,15 @@ def _render_thermal(project: str, positions: dict) -> None:
     cbar.ax.yaxis.set_tick_params(color="#adb5bd")
     plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#adb5bd")
 
-    # Annotate components with temperature badges
-    sim_positions = get_component_positions(project)
-    for name, info in sim_positions.items():
+    # Annotate components with temperature badges (mm coordinates)
+    sim_pos = get_component_positions(
+        project,
+        live_positions=positions,
+        component_temps=_COMPONENT_TEMPS,
+        board_w=board_w,
+        board_h=board_h,
+    )
+    for name, info in sim_pos.items():
         ax.annotate(
             f"{info['T']:.1f}°C\n{name.upper()}",
             xy=(info["x"], info["y"]),
@@ -440,8 +495,15 @@ def _render_thermal(project: str, positions: dict) -> None:
     plt.close(fig)
 
 
-def _render_3d(project: str | None, positions: dict) -> None:
-    """Interactive 3-D plotly PCB component visualisation."""
+def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> None:
+    """Interactive 3-D plotly PCB component visualisation.
+
+    Parameters
+    ----------
+    thermal : bool
+        When True, colour components by temperature (from _COMPONENT_TEMPS)
+        using the hot colourmap instead of fixed colours.
+    """
 
     # ── Board dimensions ──────────────────────────────────────────────────────
     board_info = positions.get("_board", {})
@@ -502,9 +564,16 @@ def _render_3d(project: str | None, positions: dict) -> None:
         # Respect runtime rotation (swap w/h)
         w = comp["h"] if comp.get("rotated") else comp["w"]
         h = comp["w"] if comp.get("rotated") else comp["h"]
-        z0, z1  = _Z.get(name, (1.5, 6.0))
-        color   = _CLR.get(name, "#6c757d")
-        label   = comp.get("label", name.upper())
+        z0, z1 = _Z.get(name, (1.5, 6.0))
+        label  = comp.get("label", name.upper())
+        if thermal:
+            temp  = _COMPONENT_TEMPS.get(name.lower(), 40.0)
+            norm  = (temp - _TEMP_VMIN) / (_TEMP_VMAX - _TEMP_VMIN)
+            norm  = max(0.0, min(1.0, norm))
+            rgba  = plt.cm.hot(norm)
+            color = f"rgb({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)})"
+        else:
+            color = _CLR.get(name, "#6c757d")
         traces.append(_box(cx - w/2, cy - h/2, z0, cx + w/2, cy + h/2, z1, color, label))
 
         # Icon texture on top face
@@ -543,7 +612,7 @@ def _render_3d(project: str | None, positions: dict) -> None:
         font=dict(color="#e0e0e0", size=11),
         legend=dict(bgcolor="#0d1b2a", bordercolor="#0f3460", borderwidth=1),
         title=dict(
-            text=f"{project or ''}  |  3D Preview",
+            text=f"{project or ''}  |  {'Thermal 3D Preview' if thermal else '3D Preview'}",
             font=dict(color="#adb5bd", size=11),
         ),
         margin=dict(l=0, r=0, t=40, b=0),
@@ -594,7 +663,7 @@ def render_workspace() -> None:
     positions = _get_positions(project)
 
     if mode == "3D":
-        _render_3d(project, positions)
+        _render_3d(project, positions, thermal=st.session_state.get("thermal_3d", False))
     elif mode == "Thermal Simulation":
         if project:
             _render_thermal(project, positions)
@@ -673,8 +742,11 @@ def _handle_chat(user_input: str) -> None:
     if isinstance(action, dict) and project:
         _apply_instruction(project, action)
     elif action == "switch_3d":
+        # Remember if we came from Thermal mode so 3D renders with temperature colours
+        st.session_state["thermal_3d"] = (st.session_state.get("mode") == "Thermal Simulation")
         st.session_state["mode"] = "3D"
     elif action == "switch_thermal":
+        st.session_state["thermal_3d"] = False
         st.session_state["mode"] = "Thermal Simulation"
 
     st.session_state["chat_history"].append({"role": "assistant", "text": response_text})
@@ -788,6 +860,7 @@ with right_col:
     )
     if chosen_mode != st.session_state["mode"]:
         st.session_state["mode"] = chosen_mode
+        st.session_state["thermal_3d"] = False  # manual switch always resets thermal 3D
         st.rerun()
 
     # Workspace rendering
@@ -816,30 +889,38 @@ with right_col:
 
     # Chat history display
     history = st.session_state["chat_history"]
+    feedback = st.session_state["chat_feedback"]
     if history:
-        chat_html_parts = []
-        for msg in history:
-            role  = msg["role"]
-            text  = msg["text"].replace("\n", "<br>")
-            if role == "user":
-                chat_html_parts.append(
-                    f'<div style="text-align:right; color:#a0c4ff; '
-                    f'margin:4px 0; font-size:0.85rem;">'
-                    f'<b>You:</b> {text}</div>'
-                )
-            else:
-                chat_html_parts.append(
-                    f'<div style="text-align:left; color:#caffbf; '
-                    f'margin:4px 0; font-size:0.84rem;">'
-                    f'<b>Assistant:</b> {text}</div>'
-                )
-
-        chat_html = (
-            '<div class="chat-scroll">'
-            + "".join(chat_html_parts)
-            + "</div>"
-        )
-        st.markdown(chat_html, unsafe_allow_html=True)
+        with st.container(height=340):
+            for i, msg in enumerate(history):
+                role = msg["role"]
+                text = msg["text"].replace("\n", "<br>")
+                if role == "user":
+                    st.markdown(
+                        f'<div style="text-align:right; color:#a0c4ff; '
+                        f'margin:4px 0; font-size:0.85rem;">'
+                        f'<b>You:</b> {text}</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    msg_col, fb_col1, fb_col2 = st.columns([10, 1, 1])
+                    with msg_col:
+                        st.markdown(
+                            f'<div style="text-align:left; color:#caffbf; '
+                            f'margin:4px 0; font-size:0.84rem;">'
+                            f'<b>Assistant:</b> {text}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with fb_col1:
+                        icon = "✅" if feedback.get(i) == "like" else "👍"
+                        if st.button(icon, key=f"like_{i}", help="Helpful"):
+                            st.session_state["chat_feedback"][i] = "like"
+                            st.rerun()
+                    with fb_col2:
+                        icon = "❌" if feedback.get(i) == "dislike" else "👎"
+                        if st.button(icon, key=f"dislike_{i}", help="Not helpful"):
+                            st.session_state["chat_feedback"][i] = "dislike"
+                            st.rerun()
     else:
         st.markdown(
             '<p style="color:#555; font-size:0.82rem;">Chat history will appear here…</p>',
@@ -857,9 +938,11 @@ with right_col:
     with col_clear:
         if st.button("Clear", use_container_width=True, key="clear_chat"):
             st.session_state["chat_history"] = []
+            st.session_state["chat_feedback"] = {}
             st.session_state["component_positions"] = {}
             st.session_state["sim_data"] = None
             st.session_state["mode"] = "Modeling"
+            st.session_state["thermal_3d"] = False
             st.rerun()
 
     if user_msg:
