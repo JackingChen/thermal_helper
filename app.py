@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+from PIL import Image as _PILImage
 
 from backends.placement import apply_placement as _placement_action
 from backends.placement import apply_layout as _layout_action
@@ -50,6 +51,7 @@ _ASSET_3D           = _HERE / "assets" / "ThermalOnPCB.png"
 _ASSET_FLOW_GEO     = _HERE / "assets" / "vti_geometry_3d.png"
 _ASSET_FLOW_LINES   = _HERE / "assets" / "vti_flow_streamlines.png"
 _ASSET_FLOW_HTML    = _HERE / "assets" / "model_3d_demo.html"
+_ICON_DIR           = _HERE / "assets" / "icons"
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -221,6 +223,57 @@ def _load_qa_cached() -> list:
     return load_qa()
 
 
+@st.cache_data(show_spinner=False)
+def _load_icons() -> dict:
+    """
+    Load all PNG icons from assets/icons/ keyed by lowercase stem.
+    Returns uint8 RGBA numpy arrays.
+    """
+    icons: dict = {}
+    if _ICON_DIR.exists():
+        for p in sorted(_ICON_DIR.glob("*.png")):
+            try:
+                icons[p.stem.lower()] = np.array(_PILImage.open(p).convert("RGBA"))
+            except Exception:
+                pass
+    return icons
+
+
+def _find_icon(name: str, label: str, icons: dict):
+    """Case-insensitive match: exact then substring (e.g. 'ddr' matches 'DDR-1')."""
+    for cand in [name.lower(), label.lower()]:
+        if cand in icons:
+            return icons[cand]
+        for stem, img in icons.items():
+            if stem in cand:
+                return img
+    return None
+
+
+def _img_to_surface_colorscale(arr: np.ndarray):
+    """
+    Convert a uint8 RGBA array to (surfacecolor_norm, colorscale) for plotly Surface.
+    Packs R,G,B into a single int per pixel, builds a tight per-colour colorscale.
+    """
+    r = arr[:, :, 0].astype(np.int64)
+    g = arr[:, :, 1].astype(np.int64)
+    b = arr[:, :, 2].astype(np.int64)
+    packed = r * 65536 + g * 256 + b
+    p_min, p_max = int(packed.min()), int(packed.max())
+    if p_min == p_max:
+        p_max = p_min + 1
+    norm = (packed - p_min).astype(float) / (p_max - p_min)
+    cscale = []
+    for v in np.unique(packed.ravel()):
+        v_n = float(v - p_min) / (p_max - p_min)
+        cscale.append([v_n, f"rgb({(v>>16)&0xFF},{(v>>8)&0xFF},{v&0xFF})"])
+    if cscale[0][0] > 0:
+        cscale.insert(0, [0.0, cscale[0][1]])
+    if cscale[-1][0] < 1.0:
+        cscale.append([1.0, cscale[-1][1]])
+    return norm, cscale
+
+
 _proj_data       = _load_projects()
 _extra_positions = _load_extra_positions()
 _qa_data         = _load_qa_cached()
@@ -299,6 +352,7 @@ def _render_modeling(project: str, positions: dict) -> None:
 
     # Exclude internal metadata key before rendering
     render_positions = {k: v for k, v in positions.items() if k != "_board"}
+    icons = _load_icons()
     # Draw larger components first so smaller ones (CPU) render on top
     sorted_comps = sorted(render_positions.items(), key=lambda kv: kv[1]["w"] * kv[1]["h"], reverse=True)
     for name, comp in sorted_comps:
@@ -313,13 +367,19 @@ def _render_modeling(project: str, positions: dict) -> None:
             edgecolor=ec, facecolor=fc, alpha=0.85,
         )
         ax.add_patch(rect)
+        # Overlay icon image if available
         label = comp.get("label", name.upper())
+        icon_arr = _find_icon(name, label, icons)
+        if icon_arr is not None and w > 0 and h > 0:
+            img_float = icon_arr.astype(float) / 255.0
+            ax.imshow(img_float, extent=[x, x + w, y, y + h],
+                      aspect="auto", zorder=3, interpolation="bilinear")
         # Offset CPU label upward slightly so it doesn't overlap Heatsink label
         y_offset = -h * 0.18 if name == "heatsink" else 0
         ax.text(
             comp["x"], comp["y"] + y_offset, label,
             ha="center", va="center",
-            fontsize=7, color="white", fontweight="bold",
+            fontsize=7, color="white", fontweight="bold", zorder=4,
         )
 
     ax.set_xlim(-5, board_w + 5)
@@ -435,14 +495,38 @@ def _render_3d(project: str | None, positions: dict) -> None:
     traces.append(_box(0, 0, 0, board_w, board_h, 1.5, "#0a3622", "PCB Board"))
 
     # Components
+    icons = _load_icons()
     render_positions = {k: v for k, v in positions.items() if k != "_board"}
     for name, comp in render_positions.items():
         cx, cy = comp["x"], comp["y"]
-        w, h    = comp["w"], comp["h"]
+        # Respect runtime rotation (swap w/h)
+        w = comp["h"] if comp.get("rotated") else comp["w"]
+        h = comp["w"] if comp.get("rotated") else comp["h"]
         z0, z1  = _Z.get(name, (1.5, 6.0))
         color   = _CLR.get(name, "#6c757d")
         label   = comp.get("label", name.upper())
         traces.append(_box(cx - w/2, cy - h/2, z0, cx + w/2, cy + h/2, z1, color, label))
+
+        # Icon texture on top face
+        icon_arr = _find_icon(name, label, icons)
+        if icon_arr is not None and w > 0 and h > 0:
+            nc = max(2, min(20, int(w)))
+            nr = max(2, min(20, int(h)))
+            resized = np.array(_PILImage.fromarray(icon_arr).resize((nc, nr)))
+            Xs = np.linspace(cx - w/2, cx + w/2, nc)
+            Ys = np.linspace(cy - h/2, cy + h/2, nr)
+            XX, YY = np.meshgrid(Xs, Ys)
+            ZZ = np.full_like(XX, z1 + 0.05)
+            surf_color, cscale = _img_to_surface_colorscale(resized)
+            traces.append(go.Surface(
+                x=XX, y=YY, z=ZZ,
+                surfacecolor=surf_color,
+                colorscale=cscale,
+                showscale=False,
+                name=f"{label} (icon)",
+                showlegend=False,
+                opacity=0.95,
+            ))
 
     fig = go.Figure(data=traces)
     fig.update_layout(
