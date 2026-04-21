@@ -94,6 +94,95 @@ streamlit run app.py --server.port 8501
 
 ---
 
+## AI Prompting Scheme
+
+The AI Assistant uses Azure OpenAI via the Responses API (`POST /openai/responses?api-version=2025-04-01-preview`). Each request builds a message list with four layers, assembled in `backends/llm_backend.py`.
+
+### Message structure
+
+```
+[system]      _SYSTEM_PROMPT
+[user]        [GEOMETRY CONTEXT] + PROJECT RULES (<project>.md)  ← primed
+[assistant]   {"response": "Context received.", ...}              ← primed
+[user]        <previous turn 1>
+[assistant]   <previous turn 1 reply>
+  ...
+[user]        <current user message>
+```
+
+#### 1. System prompt (`_SYSTEM_PROMPT`)
+
+A static string injected once per request. Contains:
+
+| Section | Purpose |
+|---|---|
+| Role & views | Describes the three workspace modes the user sees |
+| Coordinate system | Origin top-left, X right, Y down, mm units |
+| Response format | Instructs GPT to reply with a single JSON object (see below) |
+| Placement rules | Supported actions: `move_sequence` steps with `direction`/`delta`/`rotate` |
+| Mode switch rules | When to set `"mode_switch": "3D"` or `"Thermal Simulation"` |
+| Thermal knowledge | IEC 62368-1 limits, CPU Tcase bounds, fan clearance, fin orientation |
+| Project rules preamble | Instructs GPT to treat any project rules that follow as authoritative constraints |
+
+#### 2. Geometry context (primed user turn)
+
+Built by `_geometry_context()` and injected as a hidden user message that GPT acknowledges but does not respond to:
+
+```
+[GEOMETRY CONTEXT — do not respond to this]
+CURRENT WORKSPACE MODE: Modeling
+BOARD SIZE: 319 × 160 mm
+COMPONENT POSITIONS:
+  CPU: centre=(192.0, 95.5) mm, size=54.0×29.0 mm
+  DDR-1: centre=(255.0, 64.5) mm, size=72.0×33.0 mm
+  ...
+
+PROJECT RULES (Hitatori):
+<full contents of assets/project_rule/Hitatori.md>
+```
+
+The project rules block is only appended when a matching `.md` file exists under `assets/project_rule/`.
+
+#### 3. Project rules files
+
+`assets/project_rule/<ProjectName>.md` is the single source of truth for per-project constraints. Any project can have its own file — no code changes are needed.
+
+Each file has two kinds of constraints:
+
+| Kind | Marker | LLM instruction |
+|---|---|---|
+| **Fixed** | `= 0`, `_align` | Must never be violated |
+| **Optimizable** | `> N mm` (lower bound) | May be increased for better thermal/airflow; minimum must be respected |
+
+#### 4. Expected JSON response
+
+GPT is instructed to always reply with:
+
+```json
+{
+  "response": "<Markdown for chat bubble>",
+  "mode_switch": null | "3D" | "Thermal Simulation",
+  "placement": null | {
+    "action": "move_sequence",
+    "steps": [
+      {"component": "<name>", "direction": "right|left|up|down", "delta": 5},
+      {"component": "<name>", "rotate": true}
+    ]
+  }
+}
+```
+
+`_parse_llm_output()` handles code-fence stripping and JSON decode errors, falling back to escaped plain text. The `action` returned to `app.py` follows the same contract as `chat_responses.route_message()`:
+
+| Parsed value | Action returned |
+|---|---|
+| `mode_switch: "3D"` | `"switch_3d"` |
+| `mode_switch: "Thermal Simulation"` | `"switch_thermal"` |
+| `placement.action: "move_sequence"` | the placement dict |
+| anything else | `None` |
+
+---
+
 ## Configuration
 
 **`data/projects.json`** — defines the project tree, material library, and default component positions (x, y, w, h) for each project's workspace layout.

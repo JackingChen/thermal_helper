@@ -43,6 +43,8 @@ import os
 import time
 from typing import Optional
 
+from pathlib import Path
+
 import requests
 
 _log = logging.getLogger(__name__)
@@ -63,7 +65,7 @@ You are CAD T, an AI-assisted CAE/EE thermal design assistant embedded in a PCB 
 The user sees three views: 2D Modeling (component rectangles), Thermal Simulation (heatmap 20–120°C), and 3D Preview.
 
 COORDINATE SYSTEM:
-- Board origin (0, 0) is bottom-left
+- Board origin (0, 0) is top-left
 - X increases rightward, Y increases downward
 - All distances are in millimetres
 
@@ -99,8 +101,31 @@ THERMAL KNOWLEDGE:
 - CPU Tcase typically < 95–100°C; heatsink base should stay < 70°C under load
 - Fan clearance ≥ 10 mm recommended to avoid wake turbulence on adjacent components
 - Heatsink fins should be oriented parallel to airflow direction
-- Reducing CPU-to-heatsink gap below 8 mm restricts airflow by ~15–20%, raising hotspot ~3–5°C\
+- Reducing CPU-to-heatsink gap below 8 mm restricts airflow by ~15–20%, raising hotspot ~3–5°C
+
+When project-specific placement rules are provided below, treat them as authoritative
+constraints for the current project. Fixed constraints (marked with = or _align) must
+never be violated. Optimizable constraints list lower bounds that can be increased.\
 """
+
+
+# ── Project rules loader ──────────────────────────────────────────────────────
+
+_RULES_DIR = Path(__file__).parent.parent / "assets" / "project_rule"
+
+
+def _load_project_rules(project: str) -> str:
+    """Return the contents of assets/project_rule/<project>.md, or '' if not found."""
+    if not project:
+        return ""
+    path = _RULES_DIR / f"{project}.md"
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except OSError as exc:
+        _log.warning("[LLM] could not read project rules %s: %s", path, exc)
+        return ""
 
 
 # ── Geometry context builder ───────────────────────────────────────────────────
@@ -141,6 +166,7 @@ def call_azure_llm(
     chat_history: list[dict],
     positions: dict,
     workspace_mode: str,
+    project: str = "",
 ) -> tuple[str, Optional[dict | str]]:
     """
     Call the Azure OpenAI Responses API and return (response_text, action).
@@ -152,6 +178,7 @@ def call_azure_llm(
                      (each item: {"role": "user"|"assistant", "text": str}).
     positions      : Current component_positions dict from session state.
     workspace_mode : Current workspace mode string.
+    project        : Active project name; used to load project_rule/<project>.md.
     """
     if not _API_KEY:
         return (
@@ -163,11 +190,15 @@ def call_azure_llm(
     # ── Build message list ─────────────────────────────────────────────────────
     messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
 
-    # Geometry snapshot as a primed exchange so GPT has positional context
+    # Geometry snapshot + project rules as a primed exchange
     geo_ctx = _geometry_context(positions, workspace_mode)
+    rules = _load_project_rules(project)
+    ctx_parts = [f"[GEOMETRY CONTEXT — do not respond to this]\n{geo_ctx}"]
+    if rules:
+        ctx_parts.append(f"PROJECT RULES ({project}):\n{rules}")
     messages.append({
         "role": "user",
-        "content": f"[GEOMETRY CONTEXT — do not respond to this]\n{geo_ctx}",
+        "content": "\n\n".join(ctx_parts),
     })
     messages.append({
         "role": "assistant",

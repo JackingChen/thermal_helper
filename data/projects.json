@@ -1,21 +1,5 @@
 {
   "projects": [
-    {
-      "id": "ME-Placement-1041",
-      "label": "ME-Placement-1041",
-      "children": [
-        {
-          "id": "Heat-exchanger_Thermal_02",
-          "label": "Heat-exchanger_Thermal_02",
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "EE_PCB_demo0420",
-      "label": "EE_PCB_demo0420",
-      "children": []
-    }
   ],
   "components": {
     "CPU": {

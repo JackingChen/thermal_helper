@@ -353,87 +353,82 @@ def _ensure_sim(project: str | None, positions: dict | None = None) -> np.ndarra
 # ── Workspace renderers ────────────────────────────────────────────────────────
 
 def _render_modeling(project: str, positions: dict) -> None:
-    """2-D PCB component layout with matplotlib rectangles."""
-    # Board dimensions from _board key (set by _parse_geometry_array)
+    """2-D PCB component layout — interactive Plotly figure."""
     board_info = positions.get("_board", {})
     board_w = float(board_info.get("w", 400))
     board_h = float(board_info.get("h", 400))
 
-    fig, ax = plt.subplots(figsize=(6, 3))
-    fig.patch.set_facecolor("#0d1b2a")
-    ax.set_facecolor("#0d1b2a")
-
-    # PCB board outline
-    board = mpatches.FancyBboxPatch(
-        (0, 0), board_w, board_h,
-        boxstyle="square,pad=0", linewidth=1.5,
-        edgecolor="#2a9d8f", facecolor="#0a1628",
-    )
-    ax.add_patch(board)
-
-    colours = {
-        "heatsink": ("#264653", "#264653"),
-        "cpu":      ("#e9c46a", "#e9c46a"),
-        "fan":      ("#2a9d8f", "#2a9d8f"),
+    render_positions = {k: v for k, v in positions.items() if k != "_board"}
+    _CLR = {
+        "heatsink": ("#264653", "#8ecfbf"),
+        "cpu":      ("#c9941a", "#e9c46a"),
+        "fan":      ("#1a6b63", "#2a9d8f"),
     }
 
-    # Exclude internal metadata key before rendering
-    render_positions = {k: v for k, v in positions.items() if k != "_board"}
-    icons = _load_icons()
-    # Draw larger components first so smaller ones (CPU) render on top
-    sorted_comps = sorted(render_positions.items(), key=lambda kv: kv[1]["w"] * kv[1]["h"], reverse=True)
+    margin_x, margin_y = board_w * 0.10, board_h * 0.10
+    shapes = [
+        # PCB board fill
+        dict(type="rect", x0=0, y0=0, x1=board_w, y1=board_h,
+             line=dict(color="#2a9d8f", width=2), fillcolor="#0a1628", layer="below"),
+        # Outer dashed workspace boundary
+        dict(type="rect", x0=-margin_x, y0=-margin_y,
+             x1=board_w + margin_x, y1=board_h + margin_y,
+             line=dict(color="#444466", width=1, dash="dash"), fillcolor="rgba(0,0,0,0)"),
+    ]
+    annotations = []
+
+    sorted_comps = sorted(render_positions.items(),
+                          key=lambda kv: kv[1]["w"] * kv[1]["h"], reverse=True)
     for name, comp in sorted_comps:
-        # Apply runtime rotation: swap w/h when rotated flag is set
         w = comp["h"] if comp.get("rotated") else comp["w"]
         h = comp["w"] if comp.get("rotated") else comp["h"]
-        x, y = comp["x"] - w / 2, comp["y"] - h / 2
-        fc, ec = colours.get(name, ("#6c757d", "#adb5bd"))
-        rect = mpatches.FancyBboxPatch(
-            (x, y), w, h,
-            boxstyle="square,pad=0.5", linewidth=1,
-            edgecolor=ec, facecolor=fc, alpha=0.85,
-        )
-        ax.add_patch(rect)
-        # Overlay icon image if available
+        x0_c, y0_c = comp["x"] - w / 2, comp["y"] - h / 2
+        x1_c, y1_c = comp["x"] + w / 2, comp["y"] + h / 2
+        fc, ec = _CLR.get(name, ("#4a4a6a", "#adb5bd"))
         label = comp.get("label", name.upper())
-        icon_arr = _find_icon(name, label, icons)
-        if icon_arr is not None and w > 0 and h > 0:
-            img_float = icon_arr.astype(float) / 255.0
-            # extent=[left, right, bottom, top]; with inverted y-axis bottom=y+h, top=y
-            ax.imshow(img_float, extent=[x, x + w, y + h, y],
-                      aspect="auto", zorder=3, interpolation="bilinear")
-        # Offset CPU label upward slightly so it doesn't overlap Heatsink label
-        y_offset = -h * 0.18 if name == "heatsink" else 0
-        ax.text(
-            comp["x"], comp["y"] + y_offset, label,
-            ha="center", va="center",
-            fontsize=7, color="white", fontweight="bold", zorder=4,
-        )
+        shapes.append(dict(
+            type="rect", x0=x0_c, y0=y0_c, x1=x1_c, y1=y1_c,
+            line=dict(color=ec, width=1.5), fillcolor=fc, opacity=0.85,
+        ))
+        annotations.append(dict(
+            x=comp["x"], y=comp["y"], text=label,
+            showarrow=False, font=dict(color="white", size=9),
+            bgcolor="rgba(0,0,0,0)", xanchor="center", yanchor="middle",
+        ))
 
-    # Canvas outer boundary (max workspace, 10% margin beyond PCB)
-    margin_x, margin_y = board_w * 0.10, board_h * 0.10
-    outer = mpatches.FancyBboxPatch(
-        (-margin_x, -margin_y), board_w + 2 * margin_x, board_h + 2 * margin_y,
-        boxstyle="square,pad=0", linewidth=1, linestyle="--",
-        edgecolor="#444466", facecolor="none",
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[board_w / 2], y=[board_h / 2],
+        mode="markers", marker=dict(opacity=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+    fig.update_layout(
+        shapes=shapes,
+        annotations=annotations,
+        xaxis=dict(
+            range=[-margin_x - 2, board_w + margin_x + 2],
+            title="X (mm)", color="#adb5bd",
+            gridcolor="#1d3557", gridwidth=0.5, zeroline=False,
+            tickfont=dict(color="#adb5bd"),
+        ),
+        yaxis=dict(
+            range=[board_h + margin_y + 2, -margin_y - 2],
+            title="Y (mm)", color="#adb5bd",
+            gridcolor="#1d3557", gridwidth=0.5, zeroline=False,
+            tickfont=dict(color="#adb5bd"),
+            scaleanchor="x", scaleratio=1,
+        ),
+        plot_bgcolor="#0d1b2a",
+        paper_bgcolor="#16213e",
+        font=dict(color="#e0e0e0", size=11),
+        title=dict(
+            text=f"{project}  |  Mode: Modeling  [{board_w:.0f} × {board_h:.0f} mm]",
+            font=dict(color="#adb5bd", size=11),
+        ),
+        margin=dict(l=0, r=0, t=40, b=0),
+        height=350,
     )
-    ax.add_patch(outer)
-
-    ax.set_xlim(-margin_x - 2, board_w + margin_x + 2)
-    # Invert Y so (0,0) is top-left — matches PCB coordinate system (Y increases downward)
-    ax.set_ylim(board_h + margin_y + 2, -margin_y - 2)
-    ax.set_aspect("equal")
-    ax.set_xlabel("X (mm)", color="#adb5bd", fontsize=7)
-    ax.set_ylabel("Y (mm)", color="#adb5bd", fontsize=7)
-    ax.set_title(f"{project}  |  Mode: Modeling  [{board_w:.0f} × {board_h:.0f} mm]",
-                 color="#adb5bd", fontsize=9)
-    ax.tick_params(colors="#555")
-    for spine in ax.spines.values():
-        spine.set_edgecolor("#1d3557")
-
-    ax.grid(True, color="#1d3557", linewidth=0.5, alpha=0.5)
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
     # ── Overlap & out-of-bounds warnings ──────────────────────────────────────
     render_only = {k: v for k, v in positions.items() if k != "_board"}
@@ -453,7 +448,7 @@ def _render_modeling(project: str, positions: dict) -> None:
 
 
 def _render_thermal(project: str, positions: dict) -> None:
-    """2-D thermal heatmap with component annotations."""
+    """2-D thermal heatmap — interactive Plotly figure."""
     board_info = positions.get("_board", {})
     board_w = float(board_info.get("w", 400))
     board_h = float(board_info.get("h", 400))
@@ -463,22 +458,6 @@ def _render_thermal(project: str, positions: dict) -> None:
         st.warning("No simulation data — select a project first.")
         return
 
-    fig, ax = plt.subplots(figsize=(6, 3))
-    fig.patch.set_facecolor("#0d1b2a")
-    ax.set_facecolor("#0d1b2a")
-
-    img = ax.imshow(
-        sim, cmap="hot", origin="upper",
-        vmin=20, vmax=120,
-        extent=[0, board_w, board_h, 0],
-        aspect="auto",
-    )
-    cbar = fig.colorbar(img, ax=ax, fraction=0.03, pad=0.02)
-    cbar.set_label("Temperature (°C)", color="#adb5bd", fontsize=8)
-    cbar.ax.yaxis.set_tick_params(color="#adb5bd")
-    plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#adb5bd")
-
-    # Draw component bounding boxes and temperature badges (mm coordinates)
     render_positions = {k: v for k, v in positions.items() if k != "_board"}
     sim_pos = get_component_positions(
         project,
@@ -487,40 +466,80 @@ def _render_thermal(project: str, positions: dict) -> None:
         board_w=board_w,
         board_h=board_h,
     )
+
+    _nrows, _ncols = sim.shape
+    traces = [go.Heatmap(
+        z=sim,
+        x=np.linspace(0, board_w, _ncols),
+        y=np.linspace(0, board_h, _nrows),
+        colorscale="hot",
+        zmin=20, zmax=120,
+        colorbar=dict(
+            title=dict(text="°C", font=dict(color="#adb5bd")),
+            tickfont=dict(color="#adb5bd"),
+            thickness=12, len=0.6,
+        ),
+        showscale=True,
+        hovertemplate="x: %{x:.1f} mm<br>y: %{y:.1f} mm<br>T: %{z:.1f} °C<extra></extra>",
+    )]
+
+    shapes = []
     for name, comp in render_positions.items():
         w = comp["h"] if comp.get("rotated") else comp["w"]
         h = comp["w"] if comp.get("rotated") else comp["h"]
-        x, y = comp["x"] - w / 2, comp["y"] - h / 2
+        x0_c, y0_c = comp["x"] - w / 2, comp["y"] - h / 2
+        x1_c, y1_c = comp["x"] + w / 2, comp["y"] + h / 2
         temp = _COMPONENT_TEMPS.get(name.lower(), 40.0)
         norm = max(0.0, min(1.0, (temp - _TEMP_VMIN) / (_TEMP_VMAX - _TEMP_VMIN)))
         edge_rgba = plt.cm.hot(norm)
-        edge_color = (edge_rgba[0], edge_rgba[1], edge_rgba[2], 1.0)
-        rect = mpatches.FancyBboxPatch(
-            (x, y), w, h,
-            boxstyle="square,pad=0", linewidth=1.5,
-            edgecolor=edge_color, facecolor="none", zorder=3,
-        )
-        ax.add_patch(rect)
+        ec = f"rgb({int(edge_rgba[0]*255)},{int(edge_rgba[1]*255)},{int(edge_rgba[2]*255)})"
+        shapes.append(dict(
+            type="rect", x0=x0_c, y0=y0_c, x1=x1_c, y1=y1_c,
+            line=dict(color=ec, width=2), fillcolor="rgba(0,0,0,0)",
+        ))
+
+    annotations = []
     for name, info in sim_pos.items():
-        ax.annotate(
-            f"{info['T']:.1f}°C\n{name.upper()}",
-            xy=(info["x"], info["y"]),
-            fontsize=6.5, color="white", fontweight="bold",
-            ha="center", va="center",
-            bbox=dict(boxstyle="round,pad=0.25", facecolor="#333333cc", edgecolor="#ffffff55"),
-            zorder=4,
-        )
+        annotations.append(dict(
+            x=info["x"], y=info["y"],
+            text=f"{info['T']:.1f}°C<br>{name.upper()}",
+            showarrow=False,
+            font=dict(color="white", size=9),
+            bgcolor="rgba(51,51,51,0.8)",
+            bordercolor="rgba(255,255,255,0.33)",
+            borderwidth=1,
+            xanchor="center", yanchor="middle",
+        ))
 
-    ax.set_title(
-        f"{project}  |  Thermal Simulation (20–120 °C)",
-        color="#adb5bd", fontsize=9,
+    margin = board_w * 0.02
+    fig = go.Figure(data=traces)
+    fig.update_layout(
+        shapes=shapes,
+        annotations=annotations,
+        xaxis=dict(
+            range=[-margin, board_w + margin],
+            title="X (mm)", color="#adb5bd",
+            gridcolor="#1d3557", zeroline=False,
+            tickfont=dict(color="#adb5bd"),
+        ),
+        yaxis=dict(
+            range=[board_h + margin, -margin],
+            title="Y (mm)", color="#adb5bd",
+            gridcolor="#1d3557", zeroline=False,
+            tickfont=dict(color="#adb5bd"),
+            scaleanchor="x", scaleratio=1,
+        ),
+        plot_bgcolor="#0d1b2a",
+        paper_bgcolor="#16213e",
+        font=dict(color="#e0e0e0", size=11),
+        title=dict(
+            text=f"{project}  |  Thermal Simulation (20–120 °C)",
+            font=dict(color="#adb5bd", size=11),
+        ),
+        margin=dict(l=0, r=0, t=40, b=0),
+        height=350,
     )
-    ax.tick_params(colors="#555")
-    for spine in ax.spines.values():
-        spine.set_edgecolor("#1d3557")
-
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> None:
@@ -551,7 +570,7 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
     }
 
     # ── Box mesh helper ───────────────────────────────────────────────────────
-    def _box(x0, y0, z0, x1, y1, z1, color, name):
+    def _box(x0, y0, z0, x1, y1, z1, color, name, temp=None):
         """
         Return a Mesh3d trace for one axis-aligned box.
         Vertices (8): v0=(x0,y0,z0) … v7=(x1,y1,z1)
@@ -564,6 +583,7 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
         i_ = [0, 0,  4, 4,  0, 0,  2, 2,  0, 0,  1, 1]
         j_ = [1, 3,  6, 7,  4, 5,  3, 7,  2, 6,  5, 7]
         k_ = [3, 2,  7, 5,  5, 1,  7, 6,  6, 4,  7, 3]
+        temp_line = f"T: {temp:.1f} °C<br>" if temp is not None else ""
         return go.Mesh3d(
             x=vx, y=vy, z=vz,
             i=i_, j=j_, k=k_,
@@ -573,6 +593,7 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
             lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3, roughness=0.5),
             hovertemplate=(
                 f"<b>{name}</b><br>"
+                f"{temp_line}"
                 f"x: {x0:.1f}–{x1:.1f} mm<br>"
                 f"y: {y0:.1f}–{y1:.1f} mm<br>"
                 f"z: {z0:.1f}–{z1:.1f} mm<extra></extra>"
@@ -617,6 +638,17 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
     # Components
     icons = _load_icons()
     render_positions = {k: v for k, v in positions.items() if k != "_board"}
+
+    # Gather per-component temps first so we can normalise against the local range
+    _comp_temps = {
+        name: _COMPONENT_TEMPS.get(name.lower(), 40.0)
+        for name in render_positions
+    }
+    _local_min = min(_comp_temps.values()) if _comp_temps else _TEMP_VMIN
+    _local_max = max(_comp_temps.values()) if _comp_temps else _TEMP_VMAX
+    if _local_max == _local_min:
+        _local_max = _local_min + 1.0
+
     for name, comp in render_positions.items():
         cx, cy = comp["x"], comp["y"]
         # Respect runtime rotation (swap w/h)
@@ -624,15 +656,11 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
         h = comp["w"] if comp.get("rotated") else comp["h"]
         z0, z1 = _Z.get(name, (1.5, 6.0))
         label  = comp.get("label", name.upper())
-        if thermal:
-            temp  = _COMPONENT_TEMPS.get(name.lower(), 40.0)
-            norm  = (temp - _TEMP_VMIN) / (_TEMP_VMAX - _TEMP_VMIN)
-            norm  = max(0.0, min(1.0, norm))
-            rgba  = plt.cm.hot(norm)
-            color = f"rgb({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)})"
-        else:
-            color = _CLR.get(name, "#6c757d")
-        traces.append(_box(cx - w/2, cy - h/2, z0, cx + w/2, cy + h/2, z1, color, label))
+        temp  = _comp_temps[name]
+        norm  = max(0.0, min(1.0, (temp - _local_min) / (_local_max - _local_min)))
+        rgba  = plt.cm.plasma(norm)
+        color = f"rgb({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)})"
+        traces.append(_box(cx - w/2, cy - h/2, z0, cx + w/2, cy + h/2, z1, color, label, temp=temp))
 
         # Icon texture on top face
         icon_arr = _find_icon(name, label, icons)
@@ -679,40 +707,40 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
     st.plotly_chart(fig, use_container_width=True)
 
 
-def _render_flow_geometry() -> None:
-    """CFD geometry views generated from grid_inference_flow.vti."""
-    if not _ASSET_FLOW_GEO.exists():
-        st.warning(
-            "Flow geometry assets not yet generated. "
-            "Run **vti_render.ipynb** inside the Docker container first."
-        )
-        return
+# def _render_flow_geometry() -> None:
+#     """CFD geometry views generated from grid_inference_flow.vti."""
+#     if not _ASSET_FLOW_GEO.exists():
+#         st.warning(
+#             "Flow geometry assets not yet generated. "
+#             "Run **vti_render.ipynb** inside the Docker container first."
+#         )
+#         return
 
-    tab_iso, tab_stream, tab_interactive = st.tabs(
-        ["Isometric View", "Streamlines", "Interactive 3D"]
-    )
+#     tab_iso, tab_stream, tab_interactive = st.tabs(
+#         ["Isometric View", "Streamlines", "Interactive 3D"]
+#     )
 
-    with tab_iso:
-        if _ASSET_FLOW_GEO.exists():
-            st.image(str(_ASSET_FLOW_GEO),
-                     caption="Surface geometry coloured by pressure (Pa)")
-        else:
-            st.info("Geometry image not found.")
+#     with tab_iso:
+#         if _ASSET_FLOW_GEO.exists():
+#             st.image(str(_ASSET_FLOW_GEO),
+#                      caption="Surface geometry coloured by pressure (Pa)")
+#         else:
+#             st.info("Geometry image not found.")
 
-    with tab_stream:
-        if _ASSET_FLOW_LINES.exists():
-            st.image(str(_ASSET_FLOW_LINES),
-                     caption="Velocity streamlines seeded from inlet face")
-        else:
-            st.info("Streamline image not found — re-run cell 6 in vti_render.ipynb.")
+#     with tab_stream:
+#         if _ASSET_FLOW_LINES.exists():
+#             st.image(str(_ASSET_FLOW_LINES),
+#                      caption="Velocity streamlines seeded from inlet face")
+#         else:
+#             st.info("Streamline image not found — re-run cell 6 in vti_render.ipynb.")
 
-    with tab_interactive:
-        if _ASSET_FLOW_HTML.exists():
-            with open(_ASSET_FLOW_HTML, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            st.components.v1.html(html_content, height=600, scrolling=False)
-        else:
-            st.info("Interactive HTML not found — re-run cell 7 in vti_render.ipynb.")
+#     with tab_interactive:
+#         if _ASSET_FLOW_HTML.exists():
+#             with open(_ASSET_FLOW_HTML, "r", encoding="utf-8") as f:
+#                 html_content = f.read()
+#             st.components.v1.html(html_content, height=600, scrolling=False)
+#         else:
+#             st.info("Interactive HTML not found — re-run cell 7 in vti_render.ipynb.")
 
 
 def render_workspace() -> None:
@@ -790,6 +818,7 @@ def _handle_chat(user_input: str) -> None:
                 st.session_state["chat_history"],
                 positions,
                 mode,
+                project or "",
             )
             status_box.markdown("_Parsing response…_")
             status_box.empty()
