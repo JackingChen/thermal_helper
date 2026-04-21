@@ -74,13 +74,9 @@ Always reply with a single JSON object — no prose, no code fences, no extra ke
 {
   "response": "<Markdown text to display in the chat bubble — may use bold, bullets, tables>",
   "mode_switch": null | "3D" | "Thermal Simulation",
-  "placement": null | {
-    "action": "move_sequence",
-    "steps": [
-      {"component": "<name>", "direction": "<right|left|up|down>", "delta": <mm>},
-      {"component": "<name>", "rotate": true}
-    ]
-  }
+  "placement": null
+    | {"action": "move_sequence", "steps": [{"component": "<name>", "direction": "<right|left|up|down>", "delta": <mm>}, ...]}
+    | {"action": "apply_optimized"}
 }
 
 PLACEMENT RULES:
@@ -90,6 +86,8 @@ PLACEMENT RULES:
 - Use {"component": "<name>", "rotate": true} to toggle the rotated flag
 - Component names must match the names provided in the geometry context (case-insensitive)
 - Set "placement" to null if no geometry change is requested
+- Use {"action": "apply_optimized"} ONLY when the context says "OPTIMIZED PRESET AVAILABLE: yes"
+  AND the user is requesting optimization or best placement — this applies the pre-computed layout directly
 
 MODE SWITCH RULES:
 - Set "mode_switch": "3D" when the user wants a 3D preview
@@ -126,6 +124,13 @@ def _load_project_rules(project: str) -> str:
     except OSError as exc:
         _log.warning("[LLM] could not read project rules %s: %s", path, exc)
         return ""
+
+
+def _has_optimized_preset(project: str) -> bool:
+    """Return True when assets/project_rule/<project>_optimized.json exists."""
+    if not project:
+        return False
+    return (_RULES_DIR / f"{project}_optimized.json").exists()
 
 
 # ── Geometry context builder ───────────────────────────────────────────────────
@@ -196,6 +201,15 @@ def call_azure_llm(
     ctx_parts = [f"[GEOMETRY CONTEXT — do not respond to this]\n{geo_ctx}"]
     if rules:
         ctx_parts.append(f"PROJECT RULES ({project}):\n{rules}")
+    if _has_optimized_preset(project):
+        ctx_parts.append(
+            "OPTIMIZED PRESET AVAILABLE: yes\n"
+            "A pre-computed optimal layout exists for this project. "
+            "If the user asks to optimize, improve placement, or apply the best layout, "
+            'you MUST respond with \'placement\': {\'action\': \'apply_optimized\'} — '
+            "do NOT generate move_sequence steps. "
+            "Use the project rules to explain the thermal rationale in your response text."
+        )
     messages.append({
         "role": "user",
         "content": "\n\n".join(ctx_parts),
@@ -289,6 +303,8 @@ def _parse_llm_output(raw: str) -> tuple[str, Optional[dict | str]]:
         action = "switch_3d"
     elif mode_switch == "Thermal Simulation":
         action = "switch_thermal"
+    elif isinstance(placement, dict) and placement.get("action") == "apply_optimized":
+        action = "apply_optimized"
     elif isinstance(placement, dict) and placement.get("action") == "move_sequence":
         action = placement
 

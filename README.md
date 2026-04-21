@@ -156,30 +156,68 @@ Each file has two kinds of constraints:
 
 #### 4. Expected JSON response
 
-GPT is instructed to always reply with:
+GPT is instructed to always reply with one of these `placement` shapes:
 
 ```json
 {
   "response": "<Markdown for chat bubble>",
   "mode_switch": null | "3D" | "Thermal Simulation",
-  "placement": null | {
-    "action": "move_sequence",
-    "steps": [
-      {"component": "<name>", "direction": "right|left|up|down", "delta": 5},
-      {"component": "<name>", "rotate": true}
-    ]
-  }
+  "placement": null
+    | {"action": "move_sequence", "steps": [{"component": "<name>", "direction": "right|left|up|down", "delta": 5}, ...]}
+    | {"action": "apply_optimized"}
 }
 ```
 
 `_parse_llm_output()` handles code-fence stripping and JSON decode errors, falling back to escaped plain text. The `action` returned to `app.py` follows the same contract as `chat_responses.route_message()`:
 
-| Parsed value | Action returned |
+| Parsed value | Action returned | Effect |
+|---|---|---|
+| `mode_switch: "3D"` | `"switch_3d"` | Switches workspace to 3D preview |
+| `mode_switch: "Thermal Simulation"` | `"switch_thermal"` | Switches workspace to heatmap |
+| `placement.action: "move_sequence"` | the placement dict | `execute_instruction()` moves components by delta mm |
+| `placement.action: "apply_optimized"` | `"apply_optimized"` | `_apply_optimized()` overwrites session positions from preset file |
+| anything else | `None` | No workspace change |
+
+#### 5. Optimized preset (`apply_optimized`)
+
+When `assets/project_rule/<project>_optimized.json` exists, the following chain fires:
+
+```
+1. _has_optimized_preset(project) → True
+      ↓
+2. Appended to primed context message:
+     "OPTIMIZED PRESET AVAILABLE: yes
+      If the user asks to optimize … you MUST respond with
+      'placement': {'action': 'apply_optimized'}"
+      ↓
+3. User says something like:
+     "請提供最佳元件擺放建議" / "optimize" / "apply best layout"
+      ↓
+4. GPT returns:
+     {"placement": {"action": "apply_optimized"}, "response": "<thermal rationale>"}
+      ↓
+5. _parse_llm_output() → returns (response_text, "apply_optimized")
+      ↓
+6. app.py chat handler:
+     elif action == "apply_optimized" and project:
+         _apply_optimized(project)
+      ↓
+7. _apply_optimized() loads <project>_optimized.json,
+   parses it through _parse_geometry_array(),
+   overwrites st.session_state["component_positions"][project],
+   clears st.session_state["sim_data"] → workspace re-renders
+```
+
+**Conditions required for `apply_optimized` to fire:**
+
+| Condition | Where checked |
 |---|---|
-| `mode_switch: "3D"` | `"switch_3d"` |
-| `mode_switch: "Thermal Simulation"` | `"switch_thermal"` |
-| `placement.action: "move_sequence"` | the placement dict |
-| anything else | `None` |
+| Chat mode is **AI Assistant** (not Scripted) | `app.py` `_handle_chat()` |
+| `assets/project_rule/<project>_optimized.json` exists | `_has_optimized_preset()` in `llm_backend.py` |
+| User message requests optimization / best placement | GPT intent classification |
+| GPT returns `"placement": {"action": "apply_optimized"}` | `_parse_llm_output()` |
+
+**To add an optimized preset for a new project:** create `assets/project_rule/<ProjectName>_optimized.json` with the same array format as `data/<ProjectName>/<ProjectName>.json`. No code changes needed.
 
 ---
 
