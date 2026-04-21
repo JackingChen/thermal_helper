@@ -84,7 +84,19 @@ st.markdown(
     #     border-radius: 8px;
     #     padding: 12px 14px;
     #     margin-bottom: 10px;
-    #     min-height: 2px;
+    #     min-height: 200px;
+    # }
+
+    # /* Design Workspace panel — user-resizable vertically */
+    # .panel-workspace {
+    #     background: #16213e;
+    #     border: 1px solid #0f3460;
+    #     border-radius: 8px;
+    #     padding: 12px 14px;
+    #     margin-bottom: 10px;
+    #     min-height: 300px;
+    #     resize: vertical;
+    #     overflow: auto;
     # }
     .panel-title {
         color: #e94560;
@@ -151,8 +163,8 @@ def _parse_geometry_array(items: list[dict]) -> dict:
         90° / 270° swaps w and h (axis-aligned bounding box).
     """
     positions: dict = {}
-    board_w: float = 150.0
-    board_h: float = 100.0
+    board_w: float = 400.0
+    board_h: float = 400.0
 
     # Only render the highest level present (avoids duplicate level 7 + 8 overlaps)
     non_edge = [it for it in items if not it["id"].startswith("edge_")]
@@ -326,8 +338,8 @@ def _ensure_sim(project: str | None, positions: dict | None = None) -> np.ndarra
         return None
     if st.session_state["sim_data"] is None:
         board_info = (positions or {}).get("_board", {})
-        board_w = float(board_info.get("w", 150))
-        board_h = float(board_info.get("h", 100))
+        board_w = float(board_info.get("w", 400))
+        board_h = float(board_info.get("h", 400))
         st.session_state["sim_data"] = run_simulation(
             project,
             live_positions=positions,
@@ -344,10 +356,10 @@ def _render_modeling(project: str, positions: dict) -> None:
     """2-D PCB component layout with matplotlib rectangles."""
     # Board dimensions from _board key (set by _parse_geometry_array)
     board_info = positions.get("_board", {})
-    board_w = float(board_info.get("w", 150))
-    board_h = float(board_info.get("h", 100))
+    board_w = float(board_info.get("w", 400))
+    board_h = float(board_info.get("h", 400))
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(6, 3))
     fig.patch.set_facecolor("#0d1b2a")
     ax.set_facecolor("#0d1b2a")
 
@@ -443,15 +455,15 @@ def _render_modeling(project: str, positions: dict) -> None:
 def _render_thermal(project: str, positions: dict) -> None:
     """2-D thermal heatmap with component annotations."""
     board_info = positions.get("_board", {})
-    board_w = float(board_info.get("w", 150))
-    board_h = float(board_info.get("h", 100))
+    board_w = float(board_info.get("w", 400))
+    board_h = float(board_info.get("h", 400))
 
     sim = _ensure_sim(project, positions)
     if sim is None:
         st.warning("No simulation data — select a project first.")
         return
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(6, 3))
     fig.patch.set_facecolor("#0d1b2a")
     ax.set_facecolor("#0d1b2a")
 
@@ -466,7 +478,8 @@ def _render_thermal(project: str, positions: dict) -> None:
     cbar.ax.yaxis.set_tick_params(color="#adb5bd")
     plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#adb5bd")
 
-    # Annotate components with temperature badges (mm coordinates)
+    # Draw component bounding boxes and temperature badges (mm coordinates)
+    render_positions = {k: v for k, v in positions.items() if k != "_board"}
     sim_pos = get_component_positions(
         project,
         live_positions=positions,
@@ -474,6 +487,20 @@ def _render_thermal(project: str, positions: dict) -> None:
         board_w=board_w,
         board_h=board_h,
     )
+    for name, comp in render_positions.items():
+        w = comp["h"] if comp.get("rotated") else comp["w"]
+        h = comp["w"] if comp.get("rotated") else comp["h"]
+        x, y = comp["x"] - w / 2, comp["y"] - h / 2
+        temp = _COMPONENT_TEMPS.get(name.lower(), 40.0)
+        norm = max(0.0, min(1.0, (temp - _TEMP_VMIN) / (_TEMP_VMAX - _TEMP_VMIN)))
+        edge_rgba = plt.cm.hot(norm)
+        edge_color = (edge_rgba[0], edge_rgba[1], edge_rgba[2], 1.0)
+        rect = mpatches.FancyBboxPatch(
+            (x, y), w, h,
+            boxstyle="square,pad=0", linewidth=1.5,
+            edgecolor=edge_color, facecolor="none", zorder=3,
+        )
+        ax.add_patch(rect)
     for name, info in sim_pos.items():
         ax.annotate(
             f"{info['T']:.1f}°C\n{name.upper()}",
@@ -481,6 +508,7 @@ def _render_thermal(project: str, positions: dict) -> None:
             fontsize=6.5, color="white", fontweight="bold",
             ha="center", va="center",
             bbox=dict(boxstyle="round,pad=0.25", facecolor="#333333cc", edgecolor="#ffffff55"),
+            zorder=4,
         )
 
     ax.set_title(
@@ -507,8 +535,8 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
 
     # ── Board dimensions ──────────────────────────────────────────────────────
     board_info = positions.get("_board", {})
-    board_w = float(board_info.get("w", 150))
-    board_h = float(board_info.get("h", 100))
+    board_w = float(board_info.get("w", 400))
+    board_h = float(board_info.get("h", 400))
 
     # ── Per-component z-extents (mm) and colours ──────────────────────────────
     _Z = {
@@ -555,6 +583,36 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
 
     # PCB board (thin green slab)
     traces.append(_box(0, 0, 0, board_w, board_h, 1.5, "#0a3622", "PCB Board"))
+
+    # Thermal layer: a coloured 2-D heatmap slab elevated just above the PCB
+    if thermal:
+        _sim_layer = _ensure_sim(project, positions)
+        if _sim_layer is not None:
+            _SLAB_Z0, _SLAB_Z1 = 1.5, 3.5   # 2 mm thick slab
+            # Down-sample to keep plotly fast (max 80 × 80)
+            _ds = max(1, max(_sim_layer.shape[0] // 80, _sim_layer.shape[1] // 80))
+            _layer = _sim_layer[::_ds, ::_ds].astype(float)
+            _nrows, _ncols = _layer.shape
+            _Xs = np.linspace(0, board_w, _ncols)
+            _Ys = np.linspace(0, board_h, _nrows)
+            _XX, _YY = np.meshgrid(_Xs, _Ys)
+            # Top face of slab at z = SLAB_Z1
+            _ZZ_top = np.full_like(_XX, _SLAB_Z1)
+            traces.append(go.Surface(
+                x=_XX, y=_YY, z=_ZZ_top,
+                surfacecolor=_layer,
+                colorscale="hot",
+                cmin=_TEMP_VMIN, cmax=_TEMP_VMAX,
+                showscale=True,
+                colorbar=dict(
+                    title=dict(text="°C", font=dict(color="#adb5bd")),
+                    tickfont=dict(color="#adb5bd"),
+                    thickness=12, len=0.5,
+                ),
+                opacity=0.75,
+                name="Thermal Layer",
+                showlegend=True,
+            ))
 
     # Components
     icons = _load_icons()
@@ -616,7 +674,7 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
             font=dict(color="#adb5bd", size=11),
         ),
         margin=dict(l=0, r=0, t=40, b=0),
-        height=450,
+        height=350,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -843,7 +901,7 @@ with left_col:
 # ── RIGHT COLUMN ───────────────────────────────────────────────────────────────
 with right_col:
     # Design Workspace panel
-    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-workspace">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">Design Workspace</div>', unsafe_allow_html=True)
 
     # Mode switcher
@@ -891,7 +949,7 @@ with right_col:
     history = st.session_state["chat_history"]
     feedback = st.session_state["chat_feedback"]
     if history:
-        with st.container(height=340):
+        with st.container(height=260):
             for i, msg in enumerate(history):
                 role = msg["role"]
                 text = msg["text"].replace("\n", "<br>")

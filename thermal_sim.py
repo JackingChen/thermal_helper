@@ -64,8 +64,8 @@ def run_simulation(
     project_name: str = _DEFAULT_KEY,
     live_positions: dict | None = None,
     component_temps: dict | None = None,
-    board_w: float = 150.0,
-    board_h: float = 100.0,
+    board_w: float = 400.0,
+    board_h: float = 400.0,
 ) -> np.ndarray:
     """
     Generate a 2-D temperature field (°C) for the given project.
@@ -136,8 +136,8 @@ def get_component_positions(
     project_name: str = _DEFAULT_KEY,
     live_positions: dict | None = None,
     component_temps: dict | None = None,
-    board_w: float = 150.0,
-    board_h: float = 100.0,
+    board_w: float = 400.0,
+    board_h: float = 400.0,
 ) -> dict:
     """
     Return positions + temperatures of components for overlay annotations.
