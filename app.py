@@ -798,6 +798,20 @@ def _apply_optimized(project: str) -> None:
     st.session_state["sim_data"] = None
 
 
+def _apply_optimized_thermal(project: str) -> None:
+    """Overwrite session positions with the pre-computed thermally-optimized layout."""
+    opt_path = _HERE / "assets" / "project_rule" / f"{project}_optimized_4_thermal.json"
+    try:
+        with open(opt_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        st.warning(f"Could not load thermal-optimized preset: {exc}")
+        return
+    optimized_positions = _parse_geometry_array(data) if isinstance(data, list) else data
+    st.session_state["component_positions"][project] = optimized_positions
+    st.session_state["sim_data"] = None
+
+
 # ── Progress animation helper ──────────────────────────────────────────────────
 
 def _typewriter(placeholder, lines: list[str], delay: float = 0.35) -> None:
@@ -844,6 +858,8 @@ def _handle_chat(user_input: str) -> None:
         _apply_instruction(project, action)
     elif action == "apply_optimized" and project:
         _apply_optimized(project)
+    elif action == "apply_optimized_thermal" and project:
+        _apply_optimized_thermal(project)
     elif action == "switch_3d":
         # Remember if we came from Thermal mode so 3D renders with temperature colours
         st.session_state["thermal_3d"] = (st.session_state.get("mode") == "Thermal Simulation")
