@@ -1,0 +1,9 @@
+# OMEN1526 inference environment
+# Install with:
+#   source venv/bin/activate
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   pip install -r requirements_infer.txt
+
+nvidia-physicsnemo-sym
+numpy
+Cython
