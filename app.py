@@ -786,7 +786,7 @@ def _apply_instruction(project: str, instruction: dict) -> None:
 
 def _apply_optimized(project: str) -> None:
     """Overwrite session positions with the pre-computed optimized layout."""
-    opt_path = _HERE / "assets" / "project_rule" / f"{project}_optimized.json"
+    opt_path = _HERE / "assets" / "project_rule" / project / f"{project}_optimized.json"
     try:
         with open(opt_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -800,7 +800,7 @@ def _apply_optimized(project: str) -> None:
 
 def _apply_optimized_thermal(project: str) -> None:
     """Overwrite session positions with the pre-computed thermally-optimized layout."""
-    opt_path = _HERE / "assets" / "project_rule" / f"{project}_optimized_4_thermal.json"
+    opt_path = _HERE / "assets" / "project_rule" / project / f"{project}_optimized_4_thermal.json"
     try:
         with open(opt_path, encoding="utf-8") as f:
             data = json.load(f)

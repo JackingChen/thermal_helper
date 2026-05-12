@@ -116,10 +116,10 @@ _RULES_DIR = Path(__file__).parent.parent / "assets" / "project_rule"
 
 
 def _load_project_rules(project: str) -> str:
-    """Return the contents of assets/project_rule/<project>.md, or '' if not found."""
+    """Return the contents of assets/project_rule/<project>/<project>.md, or '' if not found."""
     if not project:
         return ""
-    path = _RULES_DIR / f"{project}.md"
+    path = _RULES_DIR / project / f"{project}.md"
     try:
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -130,17 +130,17 @@ def _load_project_rules(project: str) -> str:
 
 
 def _has_optimized_preset(project: str) -> bool:
-    """Return True when assets/project_rule/<project>_optimized.json exists."""
+    """Return True when assets/project_rule/<project>/<project>_optimized.json exists."""
     if not project:
         return False
-    return (_RULES_DIR / f"{project}_optimized.json").exists()
+    return (_RULES_DIR / project / f"{project}_optimized.json").exists()
 
 
 def _has_thermal_optimized_preset(project: str) -> bool:
-    """Return True when assets/project_rule/<project>_optimized_4_thermal.json exists."""
+    """Return True when assets/project_rule/<project>/<project>_optimized_4_thermal.json exists."""
     if not project:
         return False
-    return (_RULES_DIR / f"{project}_optimized_4_thermal.json").exists()
+    return (_RULES_DIR / project / f"{project}_optimized_4_thermal.json").exists()
 
 
 # ── Geometry context builder ───────────────────────────────────────────────────

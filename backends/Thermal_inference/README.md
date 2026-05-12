@@ -29,29 +29,29 @@ and all dependencies pre-installed.
 
 ```bash
 # default 20x10x20 grid over the heat-sink region
-docker run --rm --gpus all \
-  -v /path/to/Thermal_inference:/workspace \
+docker run --rm --gpus all -it \
+  -v /home/jack/thermal_helper/backends/Thermal_inference:/workspace \
   -w /workspace \
   data-service.inventec.com:1443/physicsnemo:latest \
-  python infer_thermal_solid.py
+  /bin/bash
 
 # custom grid resolution
 docker run --rm --gpus all \
-  -v /path/to/Thermal_inference:/workspace \
+  -v /home/jack/thermal_helper/backends/Thermal_inference:/workspace \
   -w /workspace \
   data-service.inventec.com:1443/physicsnemo:latest \
   python infer_thermal_solid.py --nx 64 --ny 32 --nz 64
 
 # single physical point (metres)
 docker run --rm --gpus all \
-  -v /path/to/Thermal_inference:/workspace \
+  -v /home/jack/thermal_helper/backends/Thermal_inference:/workspace \
   -w /workspace \
   data-service.inventec.com:1443/physicsnemo:latest \
   python infer_thermal_solid.py --point 0.09 0.025 0.027
 
 # save results as .npy
 docker run --rm --gpus all \
-  -v /path/to/Thermal_inference:/workspace \
+  -v /home/jack/thermal_helper/backends/Thermal_inference:/workspace \
   -w /workspace \
   data-service.inventec.com:1443/physicsnemo:latest \
   python infer_thermal_solid.py --nx 64 --ny 32 --nz 64 --save-npy results.npy
