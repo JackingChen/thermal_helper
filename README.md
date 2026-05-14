@@ -8,11 +8,11 @@ A Streamlit-based live demo simulating an AI-assisted CAE/EE design workflow. Th
 
 The demo walks through 11 scripted steps across two feature sets:
 
-**Feature 1 — Smart Placement (Steps 1–5)**
+**Feature 1 — Passive Thermal Strategy (Steps 1–5)**
 1. Open web app → 4-panel layout loads
 2. Select project `EE_PCB_demo0420` → 2D Modeling view renders
-3. Ask about CPU/heatsink spacing → AI returns placement impact analysis + recommendations
-4. Type `Apply optimized placement` → workspace animates component position updates (CPU shifts –2 mm, heatsink rotates 90°)
+3. Ask about CPU/heatsink spacing → AI returns passive-thermal impact analysis + recommendations
+4. Type `Apply passive thermal approach` → workspace applies optimized thermal strategy updates (geometry + material profile)
 5. Type `3D` → workspace switches to 3D preview image
 
 **Feature 2 — Live Simulation (Steps 6–11)**
@@ -228,6 +228,39 @@ When `assets/project_rule/<project>_optimized.json` exists, the following chain 
 **`chat_responses.py`** — all scripted response strings are module-level constants at the top of the file; edit them here before a demo without touching routing logic.
 
 **`thermal_sim.py`** — Gaussian heat source parameters (position, spread, peak temperature) are in the `_COMPONENTS` dict; adjust to change the heatmap appearance.
+
+### Material options (for project presets)
+
+Component material is configured per item in project preset JSON files, for example:
+
+```json
+{
+      "id": "CPU",
+      "x": 186,
+      "y": 81,
+      "w": 54,
+      "h": 29,
+      "rotated": 0,
+      "mapping": 0,
+      "level": 8,
+      "material": "metal"
+}
+```
+
+Supported named materials with dedicated colors in Modeling view:
+
+- `metal`
+- `copper`
+- `aluminum`
+- `ceramic`
+- `graphite`
+- `plastic`
+
+Notes:
+
+- Material values are normalized to lowercase when loaded.
+- Any unknown material string is allowed and rendered with a fallback color.
+- Default material is `metal` when the field is missing.
 
 ---
 

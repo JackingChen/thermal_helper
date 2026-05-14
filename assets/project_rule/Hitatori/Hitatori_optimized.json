@@ -1,25 +1,5 @@
 [
   {
-    "id": "hinge-L",
-    "x": 0,
-    "y": 148,
-    "w": 24,
-    "h": 12,
-    "rotated": 0,
-    "mapping": 0,
-    "level": 8
-  },
-  {
-    "id": "hinge-R",
-    "x": 295,
-    "y": 148,
-    "w": 24,
-    "h": 12,
-    "rotated": 0,
-    "mapping": 0,
-    "level": 8
-  },
-  {
     "id": "hinge-cap",
     "x": 24,
     "y": 148,
@@ -27,7 +7,8 @@
     "h": 12,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "Fin-1",
@@ -37,7 +18,8 @@
     "h": 25,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "aluminum"
   },
   {
     "id": "Fin-2",
@@ -47,7 +29,8 @@
     "h": 25,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "aluminum"
   },
   {
     "id": "IO-R",
@@ -57,7 +40,8 @@
     "h": 61,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "IO-L",
@@ -67,7 +51,8 @@
     "h": 61,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "FAN-1",
@@ -77,7 +62,8 @@
     "h": 65,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "FAN-2",
@@ -87,7 +73,8 @@
     "h": 47,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "CPU",
@@ -97,57 +84,19 @@
     "h": 29,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
-  },
-  {
-    "id": "DDR-1",
-    "x": 246,
-    "y": 48,
-    "w": 72,
-    "h": 33,
-    "rotated": 0,
-    "mapping": 0,
-    "level": 8
-  },
-  {
-    "id": "DDR-2",
-    "x": 174,
-    "y": 48,
-    "w": 72,
-    "h": 33,
-    "rotated": 0,
-    "mapping": 0,
-    "level": 8
-  },
-  {
-    "id": "SSD",
-    "x": 147,
-    "y": 0,
-    "w": 86,
-    "h": 25,
-    "rotated": 0,
-    "mapping": 1,
-    "level": 8
-  },
-  {
-    "id": "WWAN-M2",
-    "x": 0,
-    "y": 24,
-    "w": 50,
-    "h": 32,
-    "rotated": 1,
-    "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "copper"
   },
   {
     "id": "WLAN-M2",
     "x": 273,
     "y": 123,
-    "w": 33,
-    "h": 25,
+    "w": 10,
+    "h": 9,
     "rotated": 1,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "ceramic"
   },
   {
     "id": "Power-P-11",
@@ -157,7 +106,8 @@
     "h": 22,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "Power-P-21",
@@ -167,17 +117,8 @@
     "h": 16,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
-  },
-  {
-    "id": "RJ45-Tran",
-    "x": 15,
-    "y": 108,
-    "w": 15,
-    "h": 19,
-    "rotated": 0,
-    "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "edge_left",
@@ -187,7 +128,8 @@
     "h": 160,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "edge_right",
@@ -197,7 +139,8 @@
     "h": 160,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "edge_top",
@@ -207,7 +150,8 @@
     "h": 0,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "edge_bottom",
@@ -217,7 +161,8 @@
     "h": 0,
     "rotated": 0,
     "mapping": 0,
-    "level": 8
+    "level": 8,
+    "material": "metal"
   },
   {
     "id": "7-FAN-1",
@@ -227,7 +172,8 @@
     "h": 65,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "7-FAN-2",
@@ -237,7 +183,8 @@
     "h": 47,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "7-CPU",
@@ -247,7 +194,8 @@
     "h": 29,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "7-Power-P-11",
@@ -257,7 +205,8 @@
     "h": 22,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "7-Power-P-21",
@@ -267,7 +216,8 @@
     "h": 16,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "7-Transformer",
@@ -277,7 +227,8 @@
     "h": 19,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "7-cindy",
@@ -287,7 +238,8 @@
     "h": 20,
     "rotated": 1,
     "mapping": 1,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "edge_left",
@@ -297,7 +249,8 @@
     "h": 160,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "edge_right",
@@ -307,7 +260,8 @@
     "h": 160,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "edge_top",
@@ -317,7 +271,8 @@
     "h": 0,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   },
   {
     "id": "edge_bottom",
@@ -327,6 +282,7 @@
     "h": 0,
     "rotated": 0,
     "mapping": 0,
-    "level": 7
+    "level": 7,
+    "material": "metal"
   }
 ]

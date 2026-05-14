@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from backends.placement import _PRESET_PLACEMENT, _PRESET_LAYOUT
+from backends.placement import _PRESET_LAYOUT
 from qa_loader import find_answer, load_qa
 
 
@@ -31,15 +31,15 @@ from qa_loader import find_answer, load_qa
 _STEP3_PLACEMENT = """\
 **Impact Analysis:** Spacing reduced from 10 mm to 8 mm, airflow restricted by ~15–20%. CPU hotspot estimated to rise **+3 °C ~ +5 °C** under full load — risk of exceeding safe operating temperature.
 
-**Placement Recommendations:**
+**Passive Thermal Recommendations:**
 ① CPU Shift left 2 mm (X: 45.0 → 43.0 mm)
 ② Heatsink Rotate +90° to align with airflow direction, maintain clearance ≥10 mm
 
-*Next Step: Type* ***Apply optimized placement*** *to execute all updates automatically.*\
+*Next Step: Type* ***Apply passive thermal approach*** *to execute all updates automatically.*\
 """
 
 _STEP4_PLACEMENT_PROGRESS = """\
-Applying placement update…
+Applying passive thermal approach…
 - Updating component positions
 - Checking spacing constraints
 - Rebuilding layout
@@ -145,8 +145,14 @@ def route_message(
     txt = user_input.strip()
 
     # ── Exact / near-exact script triggers ────────────────────────────────────
-    if _match(txt, r"apply optimized placement", r"apply.*placement"):
-        return _STEP4_PLACEMENT_PROGRESS, _PRESET_PLACEMENT
+    if _match(
+        txt,
+        r"apply passive thermal approach",
+        r"passive thermal approach",
+        r"apply.*thermal approach",
+        r"apply optimized thermal approach",
+    ):
+        return _STEP4_PLACEMENT_PROGRESS, "apply_optimized"
 
     if _match(txt, r"apply layout adjustment", r"apply.*layout"):
         return _STEP10_LAYOUT_PROGRESS, _PRESET_LAYOUT
@@ -178,7 +184,7 @@ def route_message(
         return _STEP7_SURFACE_TEMP, None
 
     # ── Placement / spacing analysis ───────────────────────────────────────────
-    if _match(txt, r"間距", r"spacing", r"placement", r"距離.*縮小",
+    if _match(txt, r"間距", r"spacing", r"arrangement", r"距離.*縮小",
               r"散熱模組", r"heatsink", r"cpu.*shift", r"排列"):
         return _STEP3_PLACEMENT, None
 

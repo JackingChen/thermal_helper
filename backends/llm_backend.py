@@ -80,15 +80,15 @@ Always reply with a single JSON object — no prose, no code fences, no extra ke
     | {"action": "apply_optimized_thermal"}
 }
 
-PLACEMENT RULES:
+COMPONENT ADJUSTMENT RULES:
 - Only include "placement" when you are actually moving or rotating components
 - "direction" must be exactly one of: "right", "left", "up", "down"
 - "delta" is a positive number in millimetres
 - Use {"component": "<name>", "rotate": true} to toggle the rotated flag
 - Component names must match the names provided in the geometry context (case-insensitive)
 - Set "placement" to null if no geometry change is requested
-- Use {"action": "apply_optimized"} ONLY when the context says "PLACEMENT PRESET AVAILABLE: yes"
-  AND the user is requesting placement optimization or best layout — this applies the pre-computed placement directly
+- Use {"action": "apply_optimized"} ONLY when the context says "PASSIVE THERMAL PRESET AVAILABLE: yes"
+  AND the user is requesting passive thermal strategy, material optimization, or best thermal layout — this applies the pre-computed passive thermal approach directly
 - Use {"action": "apply_optimized_thermal"} ONLY when the context says "THERMAL PRESET AVAILABLE: yes"
   AND the user is requesting thermal optimization or wants to reduce heat / hotspots — this applies the pre-computed thermal layout directly
 
@@ -104,7 +104,7 @@ THERMAL KNOWLEDGE:
 - Heatsink fins should be oriented parallel to airflow direction
 - Reducing CPU-to-heatsink gap below 8 mm restricts airflow by ~15–20%, raising hotspot ~3–5°C
 
-When project-specific placement rules are provided below, treat them as authoritative
+When project-specific layout constraints are provided below, treat them as authoritative
 constraints for the current project. Fixed constraints (marked with = or _align) must
 never be violated. Optimizable constraints list lower bounds that can be increased.\
 """
@@ -213,12 +213,12 @@ def call_azure_llm(
         ctx_parts.append(f"PROJECT RULES ({project}):\n{rules}")
     if _has_optimized_preset(project):
         ctx_parts.append(
-            "PLACEMENT PRESET AVAILABLE: yes\n"
-            "A pre-computed optimal placement layout exists for this project. "
-            "If the user asks to optimize placement, improve component layout, or apply the best placement, "
+            "PASSIVE THERMAL PRESET AVAILABLE: yes\n"
+            "A pre-computed passive thermal strategy exists for this project. "
+            "If the user asks to apply passive thermal approach, optimize thermal strategy, improve material selection, or apply the best thermal layout, "
             "you MUST respond with 'placement': {'action': 'apply_optimized'} — "
             "do NOT generate move_sequence steps. "
-            "Use the project rules to explain the placement rationale in your response text."
+            "Use the project rules to explain the passive thermal rationale in your response text."
         )
     if _has_thermal_optimized_preset(project):
         ctx_parts.append(

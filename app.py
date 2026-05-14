@@ -46,10 +46,12 @@ from backends.llm_backend import call_azure_llm
 from chat_responses import route_message
 from qa_loader import load_qa
 from thermal_sim import get_component_positions, run_simulation
+import session_config as _session_cfg
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 _HERE = Path(__file__).parent
 _DATA_DIR           = _HERE / "data"
+_PROJECT_RULE_DIR   = _HERE / "assets" / "project_rule"
 _PROJECTS_JSON      = _HERE / "data" / "projects.json"
 _ASSET_3D           = _HERE / "assets" / "ThermalOnPCB.png"
 _ASSET_FLOW_GEO     = _HERE / "assets" / "vti_geometry_3d.png"
@@ -155,7 +157,7 @@ def _parse_geometry_array(items: list[dict]) -> dict:
     Convert new array geometry format → internal positions dict.
 
     Input  : list of {id, x, y (top-left), w, h, rotated (bit0), mapping (bit1), level}
-    Output : {comp_name: {x (centre), y (centre), w, h, label, rotated (bool)}}
+    Output : {comp_name: {x (centre), y (centre), w, h, label, rotated (bool), material}}
              plus special key "_board": {w, h} derived from edge_right / edge_top markers.
 
     Rotation encoding:
@@ -202,6 +204,7 @@ def _parse_geometry_array(items: list[dict]) -> dict:
             "h": h,
             "label": item["id"],          # original case for display
             "rotated": angle in (90, 270),
+            "material": str(item.get("material", "metal")).lower(),
         }
 
     positions["_board"] = {"w": board_w, "h": board_h}
@@ -211,26 +214,42 @@ def _parse_geometry_array(items: list[dict]) -> dict:
 @st.cache_data(show_spinner=False)
 def _load_extra_positions() -> dict:
     """
-    Scan data/<project>/<project>.json subdirectories.
+    Load per-project geometry presets from:
+    1) data/<project>/<project>.json (legacy)
+    2) assets/project_rule/<project>/initial.json (preferred)
+
     Supports both new array format (list) and legacy dict format.
     """
     merged: dict = {}
+
+    def _load_one(project: str, json_file: Path) -> None:
+        try:
+            with open(json_file, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                merged[project] = _parse_geometry_array(data)
+            elif isinstance(data, dict):
+                merged[project] = data
+        except Exception:
+            pass
+
     for proj_dir in sorted(_DATA_DIR.iterdir()):
         if not proj_dir.is_dir():
             continue
         json_file = proj_dir / f"{proj_dir.name}.json"
         if not json_file.exists():
             continue
-        try:
-            with open(json_file, encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                merged[proj_dir.name] = _parse_geometry_array(data)
-            elif isinstance(data, dict):
-                # Legacy dict format {comp_name: {...}}
-                merged[proj_dir.name] = data
-        except Exception:
-            pass
+        _load_one(proj_dir.name, json_file)
+
+    if _PROJECT_RULE_DIR.exists():
+        for proj_dir in sorted(_PROJECT_RULE_DIR.iterdir()):
+            if not proj_dir.is_dir():
+                continue
+            initial_file = proj_dir / "initial.json"
+            if not initial_file.exists():
+                continue
+            _load_one(proj_dir.name, initial_file)
+
     return merged
 
 
@@ -307,6 +326,9 @@ def _init_state() -> None:
         "locked":              False,        # disable controls mid-demo
         "thermal_3d":          False,        # True when 3D was triggered from Thermal Simulation mode
         "chat_feedback":       {},           # {msg_index: "like" | "dislike"}
+        # OpenClaw session config showcase
+        "session_cfg":         _session_cfg.default_config(),
+        "show_config":         False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -323,7 +345,7 @@ def _get_positions(project: str | None) -> dict:
     if not project:
         return {}
     if project not in st.session_state["component_positions"]:
-        # 1. Primary: data/<project>/<project>.json subdirectory files
+        # 1. Primary: assets/project_rule/<project>/initial.json and data/<project>/<project>.json
         pos = _extra_positions.get(project)
         # 2. Fallback: projects.json default_component_positions (legacy)
         if pos is None:
@@ -343,11 +365,67 @@ def _ensure_sim(project: str | None, positions: dict | None = None) -> np.ndarra
         st.session_state["sim_data"] = run_simulation(
             project,
             live_positions=positions,
-            component_temps=_COMPONENT_TEMPS,
             board_w=board_w,
             board_h=board_h,
         )
     return st.session_state["sim_data"]
+
+
+def _material_style(material: str) -> tuple[str, str]:
+    """Return (fill, edge) colour for a given material name."""
+    key = str(material or "metal").strip().lower()
+    palette = {
+        "metal": ("#4f5d75", "#d7deea"),
+        "copper": ("#d97706", "#ffd8a8"),
+        "aluminum": ("#5fa8ff", "#d8ecff"),
+        "ceramic": ("#f6c453", "#fff1c8"),
+        "graphite": ("#4b5563", "#cfd4dc"),
+        "plastic": ("#2cb67d", "#c7f3df"),
+    }
+    if key in palette:
+        return palette[key]
+    return ("#b37feb", "#f0ddff")
+
+
+def _load_optimized_layout(project: str, suffix: str) -> dict | None:
+    """Load and parse optimized geometry from assets/project_rule/<project>/...json."""
+    opt_path = _PROJECT_RULE_DIR / project / f"{project}{suffix}.json"
+    try:
+        with open(opt_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        st.warning(f"Could not load optimized preset: {exc}")
+        return None
+    return _parse_geometry_array(data) if isinstance(data, list) else data
+
+
+def _apply_optimized_preset(project: str, profile_positions: dict | None) -> None:
+    """Overwrite session component positions (geometry + material) from an optimized preset."""
+    if not profile_positions:
+        return
+
+    # Build new positions dict: take geometry+material from preset, fall back to current for unknowns
+    current = _get_positions(project)
+    merged: dict = {"_board": profile_positions.get("_board", current.get("_board", {}))}
+    for name, target in profile_positions.items():
+        if name == "_board":
+            continue
+        merged[name] = {
+            "x":        target.get("x", current.get(name, {}).get("x", 0.0)),
+            "y":        target.get("y", current.get(name, {}).get("y", 0.0)),
+            "w":        target.get("w", current.get(name, {}).get("w", 10.0)),
+            "h":        target.get("h", current.get(name, {}).get("h", 10.0)),
+            "label":    target.get("label", current.get(name, {}).get("label", name)),
+            "rotated":  target.get("rotated", current.get(name, {}).get("rotated", False)),
+            "material": str(target.get("material", current.get(name, {}).get("material", "metal"))).lower(),
+        }
+    # Preserve any components present in current but missing from the preset
+    for name, comp in current.items():
+        if name not in merged:
+            merged[name] = comp
+
+    st.session_state["component_positions"][project] = merged
+    st.session_state["sim_data"] = None
 
 
 # ── Workspace renderers ────────────────────────────────────────────────────────
@@ -359,11 +437,7 @@ def _render_modeling(project: str, positions: dict) -> None:
     board_h = float(board_info.get("h", 400))
 
     render_positions = {k: v for k, v in positions.items() if k != "_board"}
-    _CLR = {
-        "heatsink": ("#264653", "#8ecfbf"),
-        "cpu":      ("#c9941a", "#e9c46a"),
-        "fan":      ("#1a6b63", "#2a9d8f"),
-    }
+    non_metal_materials: set[str] = set()
 
     margin_x, margin_y = board_w * 0.10, board_h * 0.10
     shapes = [
@@ -384,7 +458,10 @@ def _render_modeling(project: str, positions: dict) -> None:
         h = comp["w"] if comp.get("rotated") else comp["h"]
         x0_c, y0_c = comp["x"] - w / 2, comp["y"] - h / 2
         x1_c, y1_c = comp["x"] + w / 2, comp["y"] + h / 2
-        fc, ec = _CLR.get(name, ("#4a4a6a", "#adb5bd"))
+        material = str(comp.get("material", "metal")).lower()
+        fc, ec = _material_style(material)
+        if material != "metal":
+            non_metal_materials.add(material)
         label = comp.get("label", name.upper())
         shapes.append(dict(
             type="rect", x0=x0_c, y0=y0_c, x1=x1_c, y1=y1_c,
@@ -402,6 +479,21 @@ def _render_modeling(project: str, positions: dict) -> None:
         mode="markers", marker=dict(opacity=0),
         showlegend=False, hoverinfo="skip",
     ))
+    for material in sorted(non_metal_materials):
+        fill, edge = _material_style(material)
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="markers",
+            marker=dict(
+                symbol="square",
+                size=11,
+                color=fill,
+                line=dict(color=edge, width=1.5),
+            ),
+            name=f"Material: {material}",
+            showlegend=True,
+            hoverinfo="skip",
+        ))
     fig.update_layout(
         shapes=shapes,
         annotations=annotations,
@@ -427,8 +519,16 @@ def _render_modeling(project: str, positions: dict) -> None:
         ),
         margin=dict(l=0, r=0, t=40, b=0),
         height=350,
+        legend=dict(
+            bgcolor="rgba(10,22,40,0.95)",
+            bordercolor="#74c0fc",
+            borderwidth=1,
+            font=dict(color="#f8fbff", size=12),
+        ),
     )
     st.plotly_chart(fig, use_container_width=True)
+    if non_metal_materials:
+        st.caption("Legend: colored components indicate material has changed (default material is metal).")
 
     # ── Overlap & out-of-bounds warnings ──────────────────────────────────────
     render_only = {k: v for k, v in positions.items() if k != "_board"}
@@ -657,9 +757,13 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
         z0, z1 = _Z.get(name, (1.5, 6.0))
         label  = comp.get("label", name.upper())
         temp  = _comp_temps[name]
-        norm  = max(0.0, min(1.0, (temp - _local_min) / (_local_max - _local_min)))
-        rgba  = plt.cm.plasma(norm)
-        color = f"rgb({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)})"
+        if thermal:
+            norm = max(0.0, min(1.0, (temp - _local_min) / (_local_max - _local_min)))
+            rgba = plt.cm.plasma(norm)
+            color = f"rgb({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)})"
+        else:
+            material = str(comp.get("material", "metal")).lower()
+            color, _edge = _material_style(material)
         traces.append(_box(cx - w/2, cy - h/2, z0, cx + w/2, cy + h/2, z1, color, label, temp=temp))
 
         # Icon texture on top face
@@ -696,7 +800,12 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
         paper_bgcolor="#16213e",
         plot_bgcolor="#16213e",
         font=dict(color="#e0e0e0", size=11),
-        legend=dict(bgcolor="#0d1b2a", bordercolor="#0f3460", borderwidth=1),
+        legend=dict(
+            bgcolor="rgba(10,22,40,0.95)",
+            bordercolor="#74c0fc",
+            borderwidth=1,
+            font=dict(color="#f8fbff", size=12),
+        ),
         title=dict(
             text=f"{project or ''}  |  {'Thermal 3D Preview' if thermal else '3D Preview'}",
             font=dict(color="#adb5bd", size=11),
@@ -785,31 +894,15 @@ def _apply_instruction(project: str, instruction: dict) -> None:
 
 
 def _apply_optimized(project: str) -> None:
-    """Overwrite session positions with the pre-computed optimized layout."""
-    opt_path = _HERE / "assets" / "project_rule" / project / f"{project}_optimized.json"
-    try:
-        with open(opt_path, encoding="utf-8") as f:
-            data = json.load(f)
-    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
-        st.warning(f"Could not load optimized preset: {exc}")
-        return
-    optimized_positions = _parse_geometry_array(data) if isinstance(data, list) else data
-    st.session_state["component_positions"][project] = optimized_positions
-    st.session_state["sim_data"] = None
+    """Apply passive-thermal preset: update geometry + material; sim re-derives temps from physics."""
+    optimized_positions = _load_optimized_layout(project, "_optimized")
+    _apply_optimized_preset(project, optimized_positions)
 
 
 def _apply_optimized_thermal(project: str) -> None:
-    """Overwrite session positions with the pre-computed thermally-optimized layout."""
-    opt_path = _HERE / "assets" / "project_rule" / project / f"{project}_optimized_4_thermal.json"
-    try:
-        with open(opt_path, encoding="utf-8") as f:
-            data = json.load(f)
-    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
-        st.warning(f"Could not load thermal-optimized preset: {exc}")
-        return
-    optimized_positions = _parse_geometry_array(data) if isinstance(data, list) else data
-    st.session_state["component_positions"][project] = optimized_positions
-    st.session_state["sim_data"] = None
+    """Apply full thermal-optimized preset: update geometry + material; sim re-derives temps from physics."""
+    optimized_positions = _load_optimized_layout(project, "_optimized_4_thermal")
+    _apply_optimized_preset(project, optimized_positions)
 
 
 # ── Progress animation helper ──────────────────────────────────────────────────
@@ -868,7 +961,47 @@ def _handle_chat(user_input: str) -> None:
         st.session_state["thermal_3d"] = False
         st.session_state["mode"] = "Thermal Simulation"
 
+    # ── Log subagent invocations to OpenClaw session config ───────────────────
+    cfg = st.session_state.get("session_cfg")
+    if cfg is not None:
+        if chat_mode == "AI Assistant":
+            _session_cfg.log_subagent(
+                cfg, "llm_reasoning_agent",
+                f"user: {user_input[:80]}",
+                "Returned JSON action from Azure OpenAI",
+            )
+        if isinstance(action, dict):
+            steps = len(action.get("steps", []))
+            _session_cfg.log_subagent(
+                cfg, "placement_agent",
+                "move_sequence instruction from LLM",
+                f"Applied {steps} placement step(s)",
+            )
+        elif action in ("apply_optimized", "apply_optimized_thermal"):
+            _session_cfg.log_subagent(
+                cfg, "placement_agent",
+                action,
+                "Loaded and applied preset layout from project_rule/",
+            )
+        elif action == "switch_thermal":
+            _session_cfg.log_subagent(
+                cfg, "thermal_sim_agent",
+                "mode switch → Thermal Simulation",
+                "Queued thermal field generation (100 × 150 grid)",
+            )
+        # FAQ-backed scripted responses route through rag_faq_agent
+        if chat_mode == "Scripted" and action not in (
+            "apply_placement", "apply_layout", "switch_3d", "switch_thermal",
+        ):
+            _session_cfg.log_subagent(
+                cfg, "rag_faq_agent",
+                f"query: {user_input[:80]}",
+                "Scored FAQ rows by token overlap and returned best match",
+            )
+
     st.session_state["chat_history"].append({"role": "assistant", "text": response_text})
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -878,7 +1011,7 @@ def _handle_chat(user_input: str) -> None:
 # Top title bar
 st.markdown(
     "<h3 style='color:#e94560; margin:0 0 8px 0; font-size:1.1rem; "
-    "letter-spacing:0.05em;'>● CAD T — Thermal Design Assistant</h3>",
+    "letter-spacing:0.05em;'>● Thermal Agent</h3>",
     unsafe_allow_html=True,
 )
 
@@ -1067,5 +1200,49 @@ with right_col:
     if user_msg:
         _handle_chat(user_msg)
         st.rerun()
+
+    # ── OpenClaw agent config controls ────────────────────────────────────────
+    oc_col1, oc_col2 = st.columns(2)
+    with oc_col1:
+        if st.button(
+            "💾 Save Advice",
+            use_container_width=True,
+            key="save_advice_btn",
+            help="Save the last user message as a memory fact in the session config",
+        ):
+            history = st.session_state["chat_history"]
+            last_user = next(
+                (m["text"] for m in reversed(history) if m["role"] == "user"), None
+            )
+            if last_user:
+                _session_cfg.add_memory(
+                    st.session_state["session_cfg"],
+                    last_user,
+                    source="user_advice",
+                )
+                st.toast("Advice saved to session memory.")
+            else:
+                st.toast("No user message found to save.")
+            st.rerun()
+    with oc_col2:
+        cfg_label = "🔧 Hide Config" if st.session_state["show_config"] else "🔧 Agent Config"
+        if st.button(cfg_label, use_container_width=True, key="agent_config_btn",
+                     help="View the current OpenClaw session config (skills, memory, subagents)"):
+            st.session_state["show_config"] = not st.session_state["show_config"]
+            st.rerun()
+
+    if st.session_state["show_config"]:
+        st.markdown(
+            "<div style='margin-top:6px; padding:8px 10px; background:#0d1b2a; "
+            "border:1px solid #0f3460; border-radius:6px;'>"
+            "<span style='color:#e94560; font-size:0.8rem; font-weight:600; "
+            "letter-spacing:0.05em;'>⚙ OpenClaw Session Config</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.code(
+            _session_cfg.as_json(st.session_state["session_cfg"]),
+            language="json",
+        )
 
     st.markdown("</div>", unsafe_allow_html=True)
