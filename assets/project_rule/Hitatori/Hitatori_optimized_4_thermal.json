@@ -1,13 +1,4 @@
 [
-   {
-    "id": "Heatsink-Premium",
-    "x": 140, 
-    "y": 75,
-    "w": 100,
-    "h": 40,
-    "rotated": 0,
-    "mapping": 0,
-    "level": 9  },
   {
     "id": "hinge-cap",
     "x": 24,
@@ -20,7 +11,7 @@
     "material": "metal"
   },
   {
-    "id": "Fin-1",
+    "id": "heatsink-1",
     "x": 30,
     "y": 121,
     "w": 65,
@@ -28,10 +19,10 @@
     "rotated": 0,
     "mapping": 0,
     "level": 8,
-    "material": "copper"
+    "material": "aluminum"
   },
   {
-    "id": "Fin-2",
+    "id": "heatsink-2",
     "x": 95,
     "y": 121,
     "w": 52,
@@ -39,7 +30,7 @@
     "rotated": 0,
     "mapping": 0,
     "level": 8,
-    "material": "copper"
+    "material": "aluminum"
   },
   {
     "id": "IO-R",
@@ -72,7 +63,7 @@
     "rotated": 0,
     "mapping": 0,
     "level": 8,
-    "material": "aluminum"
+    "material": "metal"
   },
   {
     "id": "FAN-2",
@@ -83,7 +74,7 @@
     "rotated": 0,
     "mapping": 0,
     "level": 8,
-    "material": "aluminum"
+    "material": "metal"
   },
   {
     "id": "CPU",
@@ -105,7 +96,7 @@
     "rotated": 1,
     "mapping": 0,
     "level": 8,
-    "material": "copper"
+    "material": "ceramic"
   },
   {
     "id": "Power-P-11",
@@ -116,7 +107,7 @@
     "rotated": 0,
     "mapping": 0,
     "level": 8,
-    "material": "aluminum"
+    "material": "metal"
   },
   {
     "id": "Power-P-21",
@@ -127,7 +118,40 @@
     "rotated": 0,
     "mapping": 0,
     "level": 8,
-    "material": "aluminum"
+    "material": "metal"
+  },
+  {
+    "id": "Heatsink-HP-1",
+    "x": 30,
+    "y": 86,
+    "w": 210,
+    "h": 6,
+    "rotated": 0,
+    "mapping": 0,
+    "level": 8,
+    "material": "copper"
+  },
+  {
+    "id": "Heatsink-HP-2",
+    "x": 30,
+    "y": 93,
+    "w": 210,
+    "h": 5,
+    "rotated": 0,
+    "mapping": 0,
+    "level": 8,
+    "material": "copper"
+  },
+  {
+    "id": "Heatsink-HP-3",
+    "x": 95,
+    "y": 101,
+    "w": 95,
+    "h": 4,
+    "rotated": 0,
+    "mapping": 0,
+    "level": 8,
+    "material": "copper"
   },
   {
     "id": "edge_left",

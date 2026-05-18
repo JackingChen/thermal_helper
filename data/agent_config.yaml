@@ -1,0 +1,35 @@
+---
+name: thermal-design-assistant
+description: >
+  AI copilot for thermal management and PCB layout design.
+  Supports Gaussian-field thermal simulation, component placement
+  optimization, and RF/EMI expert Q&A.
+
+agent:
+  model: inference/nvidia/nemotron-3-super-120b-a12b
+  mode: local
+
+skills:
+  - name: thermal_analysis
+    enabled: true
+    description: Gaussian-field PCB thermal simulation (100 × 150 grid)
+
+  - name: placement_optimization
+    enabled: true
+    description: Component placement constraint solver and preset loader
+
+  - name: emi_faq_lookup
+    enabled: true
+    description: RF/EMI expert Q&A retrieval from structured FAQ CSV
+
+  - name: geometry_context
+    enabled: true
+    description: PCB coordinate system awareness and component geometry injection
+
+  - name: project_rules
+    enabled: true
+    description: Per-project constraint file loader (assets/project_rule/<project>/)
+
+subagents:
+  - name: thermal_sim_agent
+    description: Runs NumPy thermal field simulation for the active project

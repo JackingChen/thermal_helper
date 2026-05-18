@@ -11,7 +11,7 @@
     "material": "metal"
   },
   {
-    "id": "Fin-1",
+    "id": "heatsink-1",
     "x": 30,
     "y": 121,
     "w": 65,
@@ -22,7 +22,7 @@
     "material": "aluminum"
   },
   {
-    "id": "Fin-2",
+    "id": "heatsink-2",
     "x": 95,
     "y": 121,
     "w": 52,

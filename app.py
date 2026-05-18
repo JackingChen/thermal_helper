@@ -323,6 +323,7 @@ def _init_state() -> None:
         "chat_history":        [],           # list of {"role": "user"|"assistant", "text": str}
         "component_positions": {},           # mutable copy of default positions
         "sim_data":            None,         # cached numpy array
+        "preset_stage":        "initial",    # "initial" | "optimized" | "optimized_thermal"
         "locked":              False,        # disable controls mid-demo
         "thermal_3d":          False,        # True when 3D was triggered from Thermal Simulation mode
         "chat_feedback":       {},           # {msg_index: "like" | "dislike"}
@@ -385,6 +386,25 @@ def _material_style(material: str) -> tuple[str, str]:
     if key in palette:
         return palette[key]
     return ("#b37feb", "#f0ddff")
+
+
+def _material_thermal_edge(material: str) -> tuple[str, int]:
+    """Return (edge_color, line_width) for thermal view — high-contrast against hot heatmap.
+
+    Conductivity-inspired hue: high-k materials (copper, aluminum) → cool cyan/blue;
+    low-k materials (plastic, ceramic) → warm green/yellow; unknown → white.
+    """
+    key = str(material or "metal").strip().lower()
+    # (color, width)
+    palette = {
+        "copper":   ("#00e5ff", 3),   # bright cyan  — excellent conductor
+        "aluminum": ("#3b82f6", 3),   # vivid blue   — good conductor
+        "metal":    ("#94a3b8", 2),   # steel-grey   — moderate
+        "graphite": ("#a78bfa", 2),   # violet       — moderate anisotropic
+        "ceramic":  ("#facc15", 2),   # bright amber — lower conductivity
+        "plastic":  ("#4ade80", 2),   # bright green — poor conductor
+    }
+    return palette.get(key, ("#ffffff", 2))
 
 
 def _load_optimized_layout(project: str, suffix: str) -> dict | None:
@@ -589,13 +609,12 @@ def _render_thermal(project: str, positions: dict) -> None:
         h = comp["w"] if comp.get("rotated") else comp["h"]
         x0_c, y0_c = comp["x"] - w / 2, comp["y"] - h / 2
         x1_c, y1_c = comp["x"] + w / 2, comp["y"] + h / 2
-        temp = _COMPONENT_TEMPS.get(name.lower(), 40.0)
-        norm = max(0.0, min(1.0, (temp - _TEMP_VMIN) / (_TEMP_VMAX - _TEMP_VMIN)))
-        edge_rgba = plt.cm.hot(norm)
-        ec = f"rgb({int(edge_rgba[0]*255)},{int(edge_rgba[1]*255)},{int(edge_rgba[2]*255)})"
+        # High-contrast material edge color for thermal view
+        material = str(comp.get("material", "metal")).lower()
+        ec, lw = _material_thermal_edge(material)
         shapes.append(dict(
             type="rect", x0=x0_c, y0=y0_c, x1=x1_c, y1=y1_c,
-            line=dict(color=ec, width=2), fillcolor="rgba(0,0,0,0)",
+            line=dict(color=ec, width=lw), fillcolor="rgba(0,0,0,0)",
         ))
 
     annotations = []
@@ -897,12 +916,14 @@ def _apply_optimized(project: str) -> None:
     """Apply passive-thermal preset: update geometry + material; sim re-derives temps from physics."""
     optimized_positions = _load_optimized_layout(project, "_optimized")
     _apply_optimized_preset(project, optimized_positions)
+    st.session_state["preset_stage"] = "optimized"
 
 
 def _apply_optimized_thermal(project: str) -> None:
     """Apply full thermal-optimized preset: update geometry + material; sim re-derives temps from physics."""
     optimized_positions = _load_optimized_layout(project, "_optimized_4_thermal")
     _apply_optimized_preset(project, optimized_positions)
+    st.session_state["preset_stage"] = "optimized_thermal"
 
 
 # ── Progress animation helper ──────────────────────────────────────────────────
@@ -940,6 +961,8 @@ def _handle_chat(user_input: str) -> None:
                 positions,
                 mode,
                 project or "",
+                st.session_state.get("session_cfg", {}),
+                st.session_state.get("preset_stage", "initial"),
             )
             status_box.markdown("_Parsing response…_")
             status_box.empty()
@@ -947,7 +970,20 @@ def _handle_chat(user_input: str) -> None:
         response_text, action = route_message(user_input, mode, _qa_data)
 
     # Execute workspace actions
-    if isinstance(action, dict) and project:
+    if isinstance(action, tuple) and project:
+        # Composite action: preset + mode switch (returned by LLM when both are needed)
+        preset_act, mode_act = action[0], action[1]
+        if preset_act == "apply_optimized":
+            _apply_optimized(project)
+        elif preset_act == "apply_optimized_thermal":
+            _apply_optimized_thermal(project)
+        if mode_act == "switch_thermal":
+            st.session_state["thermal_3d"] = False
+            st.session_state["mode"] = "Thermal Simulation"
+        elif mode_act == "switch_3d":
+            st.session_state["thermal_3d"] = (st.session_state.get("mode") == "Thermal Simulation")
+            st.session_state["mode"] = "3D"
+    elif isinstance(action, dict) and project:
         _apply_instruction(project, action)
     elif action == "apply_optimized" and project:
         _apply_optimized(project)
@@ -970,7 +1006,20 @@ def _handle_chat(user_input: str) -> None:
                 f"user: {user_input[:80]}",
                 "Returned JSON action from Azure OpenAI",
             )
-        if isinstance(action, dict):
+        if isinstance(action, tuple):
+            preset_act, mode_act = action[0], action[1]
+            _session_cfg.log_subagent(
+                cfg, "placement_agent",
+                preset_act,
+                "Loaded and applied preset layout from project_rule/ + mode switch",
+            )
+            if mode_act == "switch_thermal":
+                _session_cfg.log_subagent(
+                    cfg, "thermal_sim_agent",
+                    "mode switch → Thermal Simulation",
+                    "Queued thermal field generation (100 × 150 grid)",
+                )
+        elif isinstance(action, dict):
             steps = len(action.get("steps", []))
             _session_cfg.log_subagent(
                 cfg, "placement_agent",
@@ -1064,13 +1113,14 @@ with left_col:
                 st.session_state["sim_data"] = None
                 st.session_state["mode"] = "Modeling"
             st.rerun()
-        # List component names as tree children
-        for comp_name in _extra_positions[pid]:
-            label = _extra_positions[pid][comp_name].get("label", comp_name)
-            st.markdown(
-                f'<div class="tree-item">  ▷ {label}</div>',
-                unsafe_allow_html=True,
-            )
+        # Collapsible component tree
+        with st.expander("▶ Components", expanded=False):
+            for comp_name in _extra_positions[pid]:
+                label = _extra_positions[pid][comp_name].get("label", comp_name)
+                st.markdown(
+                    f'<div class="tree-item">  ▷ {label}</div>',
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1096,7 +1146,22 @@ with left_col:
 with right_col:
     # Design Workspace panel
     st.markdown('<div class="panel-workspace">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-title">Design Workspace</div>', unsafe_allow_html=True)
+    _stage = st.session_state.get("preset_stage", "initial")
+    _stage_labels = {
+        "initial":           ("⬜ Initial",           "#4f5d75"),
+        "optimized":         ("🟡 Material Swapped",  "#d97706"),
+        "optimized_thermal": ("🔵 Heat Pipes Added",  "#3b82f6"),
+    }
+    _stage_text, _stage_color = _stage_labels.get(_stage, ("⬜ Initial", "#4f5d75"))
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;">'
+        f'<span class="panel-title">Design Workspace</span>'
+        f'<span style="font-size:0.75rem;padding:2px 8px;border-radius:10px;'
+        f'background:{_stage_color}22;border:1px solid {_stage_color};color:{_stage_color};'
+        f'font-weight:600;letter-spacing:0.04em;">{_stage_text}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # Mode switcher
     mode_options = ["Modeling", "Thermal Simulation", "3D"]
@@ -1233,16 +1298,7 @@ with right_col:
 
     if st.session_state["show_config"]:
         st.markdown(
-            "<div style='margin-top:6px; padding:8px 10px; background:#0d1b2a; "
-            "border:1px solid #0f3460; border-radius:6px;'>"
-            "<span style='color:#e94560; font-size:0.8rem; font-weight:600; "
-            "letter-spacing:0.05em;'>⚙ OpenClaw Session Config</span>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        st.code(
-            _session_cfg.as_json(st.session_state["session_cfg"]),
-            language="json",
+            _session_cfg.as_markdown(st.session_state["session_cfg"]),
         )
 
     st.markdown("</div>", unsafe_allow_html=True)

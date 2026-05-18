@@ -88,9 +88,11 @@ COMPONENT ADJUSTMENT RULES:
 - Component names must match the names provided in the geometry context (case-insensitive)
 - Set "placement" to null if no geometry change is requested
 - Use {"action": "apply_optimized"} ONLY when the context says "PASSIVE THERMAL PRESET AVAILABLE: yes"
-  AND the user is requesting passive thermal strategy, material optimization, or best thermal layout — this applies the pre-computed passive thermal approach directly
+  AND the user is confirming a material change or thermal strategy recommendation (e.g. "Apply", "Commit", "Yes", "Do it" after a material swap or passive thermal approach has been recommended in the conversation)
+  You MAY also set "mode_switch": "Thermal Simulation" in the same response — both actions will be applied together
 - Use {"action": "apply_optimized_thermal"} ONLY when the context says "THERMAL PRESET AVAILABLE: yes"
-  AND the user is requesting thermal optimization or wants to reduce heat / hotspots — this applies the pre-computed thermal layout directly
+  AND the user is confirming a thermal enhancement recommendation (e.g. "Apply", "Commit", "Yes" after heat pipe or thermal upgrade has been recommended in the conversation)
+  You MAY also set "mode_switch": "Thermal Simulation" in the same response — both actions will be applied together
 
 MODE SWITCH RULES:
 - Set "mode_switch": "3D" when the user wants a 3D preview
@@ -143,6 +145,21 @@ def _has_thermal_optimized_preset(project: str) -> bool:
     return (_RULES_DIR / project / f"{project}_optimized_4_thermal.json").exists()
 
 
+def _format_memory_context(memory_list: list[dict]) -> str:
+    """Format session memory facts into a compact context block for the prompt."""
+    if not memory_list:
+        return ""
+    
+    lines = []
+    for mem in memory_list:
+        ts = mem.get("timestamp", "")[:16].replace("T", " ") if mem.get("timestamp") else ""
+        fact = mem.get("fact", "")
+        source = mem.get("source", "")
+        lines.append(f"  • [{ts}] {fact} (source: {source})")
+    
+    return "\n".join(lines) if lines else ""
+
+
 # ── Geometry context builder ───────────────────────────────────────────────────
 
 def _geometry_context(positions: dict, workspace_mode: str) -> str:
@@ -161,8 +178,9 @@ def _geometry_context(positions: dict, workspace_mode: str) -> str:
         h = round(float(comp.get("h", 0)), 1)
         label = comp.get("label", name)
         rotated = comp.get("rotated", False)
+        material = comp.get("material", "metal")
         lines.append(
-            f"  {label}: centre=({x}, {y}) mm, size={w}×{h} mm"
+            f"  {label}: centre=({x}, {y}) mm, size={w}×{h} mm, material={material}"
             + (" [rotated]" if rotated else "")
         )
 
@@ -182,6 +200,8 @@ def call_azure_llm(
     positions: dict,
     workspace_mode: str,
     project: str = "",
+    session_cfg: dict | None = None,
+    preset_stage: str = "initial",
 ) -> tuple[str, Optional[dict | str]]:
     """
     Call the Azure OpenAI Responses API and return (response_text, action).
@@ -194,6 +214,8 @@ def call_azure_llm(
     positions      : Current component_positions dict from session state.
     workspace_mode : Current workspace mode string.
     project        : Active project name; used to load project_rule/<project>.md.
+    session_cfg    : Optional OpenClaw session config dict (contains memory facts).
+    preset_stage   : Current applied preset stage — "initial" | "optimized" | "optimized_thermal".
     """
     if not _API_KEY:
         return (
@@ -209,25 +231,47 @@ def call_azure_llm(
     geo_ctx = _geometry_context(positions, workspace_mode)
     rules = _load_project_rules(project)
     ctx_parts = [f"[GEOMETRY CONTEXT — do not respond to this]\n{geo_ctx}"]
+    
+    # Inject memory facts if available
+    if session_cfg and session_cfg.get("memory"):
+        memory_ctx = _format_memory_context(session_cfg["memory"])
+        if memory_ctx:
+            ctx_parts.append(f"[SESSION MEMORY — user advice & facts]\n{memory_ctx}")
+    
     if rules:
         ctx_parts.append(f"PROJECT RULES ({project}):\n{rules}")
-    if _has_optimized_preset(project):
+    if preset_stage == "initial" and _has_optimized_preset(project):
         ctx_parts.append(
             "PASSIVE THERMAL PRESET AVAILABLE: yes\n"
-            "A pre-computed passive thermal strategy exists for this project. "
-            "If the user asks to apply passive thermal approach, optimize thermal strategy, improve material selection, or apply the best thermal layout, "
-            "you MUST respond with 'placement': {'action': 'apply_optimized'} — "
-            "do NOT generate move_sequence steps. "
-            "Use the project rules to explain the passive thermal rationale in your response text."
+            "Pre-computed preset = Step A (see project rules): heatsink material swap — Heatsink-1 and Heatsink-2 change to Aluminum 6061.\n"
+            "TRIGGER: respond with {'action': 'apply_optimized'} AND 'mode_switch': 'Thermal Simulation' when the user "
+            "confirms a material swap recommendation (e.g. says 'Apply', 'Commit', 'Yes', 'Do it' after a heatsink "
+            "material change has been suggested in the conversation). "
+            "Do NOT apply on a general question — only on an explicit confirmation.\n"
+            "Do NOT generate move_sequence steps.\n"
+            "Explain in your response with this recommendation style:\n"
+            "**Recommendation:**\n"
+            "- Swap Heatsink-1 and Heatsink-2 from Copper C1100 to Aluminum 6061.\n"
+            "- Aluminum's lower density reduces thermal mass, improving the heatsink's ability to respond to rapid temperature changes from the CPU.\n"
+            "- This change typically yields a ~6°C reduction in CPU hotspot temperature during peak 30-second loads, with no loss in overall cooling under steady airflow."
         )
-    if _has_thermal_optimized_preset(project):
+    if preset_stage == "optimized" and _has_thermal_optimized_preset(project):
         ctx_parts.append(
             "THERMAL PRESET AVAILABLE: yes\n"
-            "A pre-computed thermally-optimized layout exists for this project. "
-            "If the user asks to reduce heat, lower temperatures, fix hotspots, or apply thermal optimization, "
-            "you MUST respond with 'placement': {'action': 'apply_optimized_thermal'} — "
-            "do NOT generate move_sequence steps. "
-            "Use thermal knowledge to explain the temperature reduction rationale in your response text."
+            "Pre-computed preset = Step B: heat pipe enhancement — adds 3× 6 mm sintered copper heat pipes "
+            "(Heatsink-HP-1/2/3) bridging CPU cold plate to rear fin stack.\n"
+            "CURRENT STATE: Step A (material swap) is already applied. Step B is the only available next action.\n"
+            "TRIGGER: when the user says 'Apply', 'Yes', 'Commit', or any explicit confirmation AFTER heat pipe "
+            "enhancement has been discussed, output EXACTLY:\n"
+            "  'placement': {'action': 'apply_optimized_thermal'}  ← MUST NOT be null\n"
+            "  'mode_switch': 'Thermal Simulation'\n"
+            "Do NOT set placement to null on confirmation — the system will not apply the preset without it.\n"
+            "Do NOT generate move_sequence steps.\n"
+            "Explain in your response:\n"
+            "**Further Recommendation:**\n"
+            "- Integrate 3× 6 mm sintered copper heat pipes (Heatsink-HP-1, 2, 3) bridging the CPU cold-plate directly to the rear fin stack.\n"
+            "- These heat pipes will rapidly transfer heat away from the CPU, greatly improving peak and sustained cooling performance.\n"
+            "- This enhancement typically brings an additional **~11°C reduction in CPU hotspot**, for a total improvement of ~17°C versus the original baseline."
         )
     messages.append({
         "role": "user",
@@ -309,24 +353,48 @@ def _parse_llm_output(raw: str) -> tuple[str, Optional[dict | str]]:
     try:
         obj = json.loads(stripped)
     except json.JSONDecodeError:
-        # Not JSON — render raw text safely
-        return html.escape(raw), None
+        # LLM sometimes outputs prose text followed by a JSON blob.
+        # Scan forward from each '{' until we find a valid JSON object.
+        idx = stripped.find("{")
+        obj = None
+        while idx != -1:
+            try:
+                obj = json.loads(stripped[idx:])
+                break
+            except json.JSONDecodeError:
+                idx = stripped.find("{", idx + 1)
+        if obj is None:
+            # No valid JSON found anywhere — render raw text safely
+            return html.escape(raw), None
 
     response_text: str = obj.get("response", "")
     mode_switch         = obj.get("mode_switch")
     placement           = obj.get("placement")
 
-    # Determine action (same contract as chat_responses.route_message)
-    action: Optional[dict | str] = None
-    if mode_switch == "3D":
+    # Determine action (same contract as chat_responses.route_message).
+    # Placement presets take priority over mode_switch; when both are present
+    # a 2-tuple (preset_action, mode_action) is returned so _handle_chat can
+    # apply both in sequence.
+    action: Optional[dict | str | tuple] = None
+    if isinstance(placement, dict) and placement.get("action") == "apply_optimized":
+        if mode_switch == "Thermal Simulation":
+            action = ("apply_optimized", "switch_thermal")
+        elif mode_switch == "3D":
+            action = ("apply_optimized", "switch_3d")
+        else:
+            action = "apply_optimized"
+    elif isinstance(placement, dict) and placement.get("action") == "apply_optimized_thermal":
+        if mode_switch == "Thermal Simulation":
+            action = ("apply_optimized_thermal", "switch_thermal")
+        elif mode_switch == "3D":
+            action = ("apply_optimized_thermal", "switch_3d")
+        else:
+            action = "apply_optimized_thermal"
+    elif isinstance(placement, dict) and placement.get("action") == "move_sequence":
+        action = placement
+    elif mode_switch == "3D":
         action = "switch_3d"
     elif mode_switch == "Thermal Simulation":
         action = "switch_thermal"
-    elif isinstance(placement, dict) and placement.get("action") == "apply_optimized":
-        action = "apply_optimized"
-    elif isinstance(placement, dict) and placement.get("action") == "apply_optimized_thermal":
-        action = "apply_optimized_thermal"
-    elif isinstance(placement, dict) and placement.get("action") == "move_sequence":
-        action = placement
 
     return response_text, action
