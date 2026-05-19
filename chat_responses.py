@@ -49,6 +49,17 @@ Switch to 3D preview for validation?
 *Type* ***3D*** *to switch to 3D preview mode automatically.*\
 """
 
+_HEATSINK_ALUMINUM_PROGRESS = """\
+Switching heatsink material to **aluminum alloy**…
+- Replacing copper base and heat pipes with aluminum
+- Updating material properties (conductivity, density)
+- Re-running PINN thermal prediction (aluminum model)
+
+✅ **Aluminum heatsink applied.**
+Thermal simulation now reflects the aluminum model prediction.
+Switch to **Thermal Simulation** to view the updated temperature field.\
+"""
+
 _STEP5_3D_CONFIRM = "🖥️ **3D view ready.** Design Workspace switched to 3D preview."
 
 _STEP6_THERMAL_MODE = """\
@@ -153,6 +164,18 @@ def route_message(
         r"apply optimized thermal approach",
     ):
         return _STEP4_PLACEMENT_PROGRESS, "apply_optimized"
+
+    if _match(
+        txt,
+        r"switch.*aluminum",
+        r"apply.*aluminum",
+        r"copper.*aluminum",
+        r"aluminum heatsink",
+        r"change.*copper.*aluminum",
+        r"optimize.*heatsink",
+        r"apply.*optimized",
+    ):
+        return _HEATSINK_ALUMINUM_PROGRESS, "apply_optimized"
 
     if _match(txt, r"apply layout adjustment", r"apply.*layout"):
         return _STEP10_LAYOUT_PROGRESS, _PRESET_LAYOUT

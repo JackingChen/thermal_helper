@@ -36,12 +36,30 @@ thermal_helper/
 ├── backends/
 │   ├── __init__.py         # BackendResult dataclass
 │   ├── placement.py        # Placement backend stub (future: solver)
-│   └── thermal.py          # Thermal backend stub (future: RC-network solver)
+│   ├── thermal.py          # Thermal backend stub (future: RC-network solver)
+│   ├── llm_backend.py      # Azure OpenAI Responses API client
+│   ├── pinn_heatsink.py    # PINN field loader for heatsink project (copper + aluminum)
+│   └── Thermal_inference/  # PINN model weights + one-off extraction scripts
+│       ├── infer_thermal_solid.py          # FourierNetArch inference helper
+│       ├── extract_z28.py                  # Pre-computes copper field → pinn_heatsink_z28.npy
+│       ├── extract_aluminum_z0.py          # Pre-computes aluminum field → pinn_heatsink_aluminum_z0.npy
+│       └── model/
+│           ├── NV_heatsink_copper/         # Copper PINN checkpoint
+│           └── NV_heatsink_aluminum/       # Aluminum PINN checkpoint
 ├── data/
 │   ├── projects.json       # Project tree + component metadata + default positions
 │   └── (AIC 0408) Ai for design_Thermal Expert System_FAQ v.1.csv
 ├── assets/
-│   └── ThermalOnPCB.png    # Static 3D preview image
+│   ├── ThermalOnPCB.png                    # Static 3D preview image
+│   ├── pinn_heatsink_z28.npy               # Pre-computed copper PINN field (64×32)
+│   ├── pinn_heatsink_aluminum_z0.npy       # Pre-computed aluminum PINN field (64×32)
+│   └── project_rule/
+│       ├── Hitatori/                       # Hitatori project rules + preset JSONs
+│       └── heatsink/                       # Heatsink project rules + preset JSONs
+│           ├── heatsink.md                 # Project constraints (for LLM context)
+│           ├── heatsink_optimized_hint.md  # Per-project apply_optimized trigger text
+│           ├── initial.json                # Default copper layout
+│           └── heatsink_optimized.json     # Aluminum upgrade layout
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -51,11 +69,12 @@ thermal_helper/
 
 | Concern | Approach |
 |---|---|
-| Chat logic | Keyword regex routing in `chat_responses.py` — no live LLM calls |
-| Thermal simulation | In-process NumPy Gaussian field, `run_simulation()` → 100×150 array |
+| Chat logic | Keyword regex routing (`chat_responses.py`) or live Azure OpenAI call (`llm_backend.py`) |
+| Thermal simulation | In-process NumPy Gaussian field + PINN overlay for heatsink project |
+| PINN inference | FourierNetArch (PhysicsNeMo) run once offline; result cached as `.npy` in `assets/` |
 | FAQ retrieval | CSV keyword-overlap scoring via `qa_loader.find_answer()` |
 | Workspace mutations | Stored in `st.session_state["component_positions"]`; workspace re-renders on rerun |
-| 3D preview | Static `st.image()` swap — no interactive 3D engine |
+| 3D preview | Interactive Plotly `Mesh3d` scene; heatsink uses PINN-derived temps and per-component z-heights |
 | Future AI backends | `backends/placement.py` and `backends/thermal.py` stubs with `BackendResult` interface |
 
 ---
@@ -175,7 +194,8 @@ GPT is instructed to always reply with one of these `placement` shapes:
 | `mode_switch: "3D"` | `"switch_3d"` | Switches workspace to 3D preview |
 | `mode_switch: "Thermal Simulation"` | `"switch_thermal"` | Switches workspace to heatmap |
 | `placement.action: "move_sequence"` | the placement dict | `execute_instruction()` moves components by delta mm |
-| `placement.action: "apply_optimized"` | `"apply_optimized"` | `_apply_optimized()` overwrites session positions from preset file |
+| `placement.action: "apply_optimized"` | `"apply_optimized"` | `_apply_optimized()` overwrites session positions from preset file; for heatsink, also switches PINN thermal field |
+| `placement.action: "apply_optimized_thermal"` | `"apply_optimized_thermal"` | `_apply_optimized_thermal()` loads the `_optimized_4_thermal` preset (Step B) |
 | anything else | `None` | No workspace change |
 
 #### 5. Optimized preset (`apply_optimized`)
@@ -217,7 +237,112 @@ When `assets/project_rule/<project>_optimized.json` exists, the following chain 
 | User message requests optimization / best placement | GPT intent classification |
 | GPT returns `"placement": {"action": "apply_optimized"}` | `_parse_llm_output()` |
 
-**To add an optimized preset for a new project:** create `assets/project_rule/<ProjectName>_optimized.json` with the same array format as `data/<ProjectName>/<ProjectName>.json`. No code changes needed.
+**To add an optimized preset for a new project:**
+
+1. Create `assets/project_rule/<ProjectName>/<ProjectName>_optimized.json` with the same array format as `initial.json`.
+2. *(Optional)* Create `assets/project_rule/<ProjectName>/<ProjectName>_optimized_hint.md` to give GPT project-specific instructions about when and how to trigger the preset. If this file does not exist, `_load_optimized_hint()` falls back to the generic Hitatori-style prompt.
+
+No code changes are needed for step 1. Step 2 lets you control exactly how the LLM describes and triggers the optimization for each project.
+
+---
+
+## Heatsink Project & PINN Thermal Inference
+
+### Overview
+
+The `heatsink` project demonstrates physics-informed neural network (PINN) thermal prediction integrated directly into the 2D heatmap and 3D views. Two pre-trained `FourierNetArch` (PhysicsNeMo) models are supported:
+
+| Model | Checkpoint | Hottest plane | T range | Use case |
+|---|---|---|---|---|
+| **Copper** | `NV_heatsink_copper/thermal_solid_network.0.pth` | z_idx=28 (z=5.15, near outlet) | 25.1–28.9°C | Default / baseline layout |
+| **Aluminum** | `NV_heatsink_aluminum/thermal_solid_network.0.pth` | z_idx=0 (z=−0.98, chip inlet) | 21.6–34.8°C | Optimized layout (post `apply_optimized`) |
+
+Temperature reference: inlet coolant at 0°C; field values are `theta_s × 273.15`.
+
+### Pre-computation
+
+PINN inference runs inside the `physicsnemo` Docker image (GPU-accelerated). Results are saved once to `.npy` files and loaded at app startup — no GPU is needed at runtime:
+
+```bash
+# Copper field (z_idx=28)
+docker run --rm --gpus all \
+  -v /home/jack/thermal_helper/backends/Thermal_inference:/workspace \
+  -v /home/jack/thermal_helper/assets:/assets \
+  -w /workspace \
+  data-service.inventec.com:1443/physicsnemo:latest \
+  python extract_z28.py
+
+# Aluminum field (z_idx=0)
+docker run --rm --gpus all \
+  -v /home/jack/thermal_helper/backends/Thermal_inference:/workspace \
+  -v /home/jack/thermal_helper/assets:/assets \
+  -w /workspace \
+  data-service.inventec.com:1443/physicsnemo:latest \
+  python extract_aluminum_z0.py
+```
+
+Each script saves a dict `{T_C, xs_nd, ys_nd, z_nd, description}` as a `.npy` file with `allow_pickle=True`.
+
+### Coordinate systems
+
+| Model | x (flow direction) | y (fin height) | z (depth) |
+|---|---|---|---|
+| Copper | [0.15, 1.15] | [0.00, 0.60] | [0.00, 5.70] |
+| Aluminum | [−0.70, 0.70] | [−0.39, 0.39] | [−0.98, 0.77] |
+
+> **Important:** never query a model outside its own training domain — PINNs extrapolate catastrophically outside their trained coordinate bounds.
+
+### Field → board mapping
+
+`thermal_sim._apply_pinn_heatsink_overlay()` maps the PINN XY slice onto the heatsink components:
+
+- **PINN x** (flow direction) → **board Y-axis** of each heatsink body component
+- **PINN y** (fin height) → averaged out (top-down 2D view)
+- Temperature is interpolated linearly from the flow-direction profile at each component's Y centre
+
+### Material-based field switching
+
+`thermal_sim._hs_material(live_positions)` reads `live_positions["cu-base"]["material"]`:
+
+- `copper` → copper PINN profile (uniform gradient, 2.2°C span)
+- `aluminum` → aluminum PINN profile (steeper gradient, 6.7°C span)
+
+This means the thermal overlay switches automatically when `apply_optimized` changes the layout from copper to aluminum — no extra code path needed.
+
+### Heatsink optimization flow
+
+```
+User: "switch to aluminum" / "optimize heatsink" / "apply"
+       ↓
+LLM reads heatsink_optimized_hint.md from context
+       ↓
+GPT returns: {"placement": {"action": "apply_optimized"}, "mode_switch": "Thermal Simulation"}
+       ↓
+_apply_optimized("heatsink")
+  → loads heatsink_optimized.json  (CU-BASE, HP-1..5, HP-xbar-1..5 material: copper → aluminum)
+  → overwrites session positions
+  → clears sim_data
+       ↓
+thermal_sim detects cu-base.material == "aluminum"
+  → uses aluminum PINN profile
+  → 2D heatmap and 3D boxes re-render with aluminum temperature field
+```
+
+### 3D thermal inspection
+
+In the heatsink project, switching to **3D** mode (or clicking **🔲 View in 3D (thermal)** from the Thermal Simulation panel) renders each component as an interactive `Mesh3d` box. Components are physically stacked in z:
+
+| Component | z extent (mm) |
+|---|---|
+| CPU-Substrate | 0.0 – 1.5 |
+| CPU-Lid / CPU-Die | 1.5 – 4.0 |
+| TIM1 / PTM7900 | 4.0 – 4.5 |
+| CU-BASE | 4.5 – 9.0 |
+| HP-1..5 (heat pipes) | 9.0 – 45.0 |
+| HP-xbar-1..5 | 9.0 – 14.0 |
+| FIN-array | 9.0 – 45.0 |
+
+In thermal mode, each box is colored by its **PINN-derived temperature** (not a hardcoded table). Hovering over any part shows its predicted temperature, name, and exact position.
 
 ---
 

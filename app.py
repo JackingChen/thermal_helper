@@ -660,6 +660,13 @@ def _render_thermal(project: str, positions: dict) -> None:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    # Heatsink: offer a direct shortcut to thermal 3D inspection
+    if project == "heatsink":
+        if st.button("🔲 View in 3D (thermal)", key="hs_thermal_3d_btn"):
+            st.session_state["thermal_3d"] = True
+            st.session_state["mode"] = "3D"
+            st.rerun()
+
 
 def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> None:
     """Interactive 3-D plotly PCB component visualisation.
@@ -724,6 +731,27 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
     # PCB board (thin green slab)
     traces.append(_box(0, 0, 0, board_w, board_h, 1.5, "#0a3622", "PCB Board"))
 
+    # ── Heatsink-specific z-stacking (mm above PCB top) ───────────────────────
+    _HS_Z: dict[str, tuple[float, float]] = {
+        "cpu-substrate": (0.0,  1.5),
+        "cpu-lid":       (1.5,  4.0),
+        "cpu-die":       (1.5,  2.5),
+        "tim1":          (4.0,  4.5),
+        "ptm7900":       (4.0,  4.5),
+        "cu-base":       (4.5,  9.0),
+        "fin-array":     (9.0, 45.0),
+        "hp-1":          (9.0, 45.0),
+        "hp-2":          (9.0, 45.0),
+        "hp-3":          (9.0, 45.0),
+        "hp-4":          (9.0, 45.0),
+        "hp-5":          (9.0, 45.0),
+        "hp-xbar-1":     (9.0, 14.0),
+        "hp-xbar-2":     (9.0, 14.0),
+        "hp-xbar-3":     (9.0, 14.0),
+        "hp-xbar-4":     (9.0, 14.0),
+        "hp-xbar-5":     (9.0, 14.0),
+    }
+
     # Thermal layer: a coloured 2-D heatmap slab elevated just above the PCB
     if thermal:
         _sim_layer = _ensure_sim(project, positions)
@@ -758,11 +786,22 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
     icons = _load_icons()
     render_positions = {k: v for k, v in positions.items() if k != "_board"}
 
-    # Gather per-component temps first so we can normalise against the local range
-    _comp_temps = {
-        name: _COMPONENT_TEMPS.get(name.lower(), 40.0)
-        for name in render_positions
-    }
+    # Gather per-component temps:
+    # • heatsink project → PINN-derived values from get_component_positions()
+    # • all other projects  → hardcoded _COMPONENT_TEMPS lookup
+    if project == "heatsink":
+        _pinn_data = get_component_positions(
+            project, render_positions, board_w=board_w, board_h=board_h
+        )
+        _comp_temps = {
+            name: _pinn_data[name]["T"] if name in _pinn_data else 40.0
+            for name in render_positions
+        }
+    else:
+        _comp_temps = {
+            name: _COMPONENT_TEMPS.get(name.lower(), 40.0)
+            for name in render_positions
+        }
     _local_min = min(_comp_temps.values()) if _comp_temps else _TEMP_VMIN
     _local_max = max(_comp_temps.values()) if _comp_temps else _TEMP_VMAX
     if _local_max == _local_min:
@@ -773,7 +812,11 @@ def _render_3d(project: str | None, positions: dict, thermal: bool = False) -> N
         # Respect runtime rotation (swap w/h)
         w = comp["h"] if comp.get("rotated") else comp["w"]
         h = comp["w"] if comp.get("rotated") else comp["h"]
-        z0, z1 = _Z.get(name, (1.5, 6.0))
+        # Use heatsink-specific z-heights when available, else generic fallback
+        if project == "heatsink":
+            z0, z1 = _HS_Z.get(name.lower(), (1.5, 6.0))
+        else:
+            z0, z1 = _Z.get(name, (1.5, 6.0))
         label  = comp.get("label", name.upper())
         temp  = _comp_temps[name]
         if thermal:

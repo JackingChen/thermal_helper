@@ -267,6 +267,12 @@ def run_simulation(
     return field
 
 
+def _hs_material(live_positions: dict) -> str:
+    """Detect heatsink body material from the cu-base component. Returns 'copper' or 'aluminum'."""
+    mat = live_positions.get("cu-base", {}).get("material", "copper")
+    return "aluminum" if str(mat).lower() == "aluminum" else "copper"
+
+
 def _apply_pinn_heatsink_overlay(
     field: np.ndarray,
     live_positions: dict,
@@ -282,8 +288,13 @@ def _apply_pinn_heatsink_overlay(
 
     Only components whose name contains a substring from _HS_BODY_KEYWORDS
     are overwritten (fin-array, hp-*, cu-base, hp-xbar-*).
+
+    Material is detected from the cu-base component's material property:
+      copper   → copper PINN field (z_idx=28, T range 25–29°C)
+      aluminum → aluminum PINN field (z_idx=0, T range 22–35°C)
     """
-    profile = _pinn.get_flow_profile()   # shape (nx,), °C along flow direction
+    material = _hs_material(live_positions)
+    profile = _pinn.get_flow_profile(material)   # shape (nx,), °C along flow direction
     nx = len(profile)
 
     for name, comp in live_positions.items():
@@ -346,7 +357,8 @@ def get_component_positions(
         hs_y0: float = 0.0
         hs_y1: float = 1.0
         if project_name == "heatsink" and _pinn.is_available():
-            pinn_profile = _pinn.get_flow_profile()   # (nx,) °C
+            material = _hs_material(live_positions)
+            pinn_profile = _pinn.get_flow_profile(material)   # (nx,) °C
             hs_comps = [
                 comp for nm, comp in live_positions.items()
                 if nm != "_board" and any(kw in nm.lower() for kw in _HS_BODY_KEYWORDS)

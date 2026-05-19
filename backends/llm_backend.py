@@ -145,6 +145,36 @@ def _has_thermal_optimized_preset(project: str) -> bool:
     return (_RULES_DIR / project / f"{project}_optimized_4_thermal.json").exists()
 
 
+def _load_optimized_hint(project: str) -> str:
+    """
+    Load per-project optimized preset hint from <project>/<project>_optimized_hint.md.
+    Returns the file contents when it exists, otherwise the generic Hitatori-style fallback.
+    """
+    if project:
+        path = _RULES_DIR / project / f"{project}_optimized_hint.md"
+        try:
+            return path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            _log.warning("[LLM] could not read optimized hint %s: %s", path, exc)
+    # Generic fallback (original Hitatori wording)
+    return (
+        "PASSIVE THERMAL PRESET AVAILABLE: yes\n"
+        "Pre-computed preset = Step A (see project rules): heatsink material swap — Heatsink-1 and Heatsink-2 change to Aluminum 6061.\n"
+        "TRIGGER: respond with {'action': 'apply_optimized'} AND 'mode_switch': 'Thermal Simulation' when the user "
+        "confirms a material swap recommendation (e.g. says 'Apply', 'Commit', 'Yes', 'Do it' after a heatsink "
+        "material change has been suggested in the conversation). "
+        "Do NOT apply on a general question — only on an explicit confirmation.\n"
+        "Do NOT generate move_sequence steps.\n"
+        "Explain in your response with this recommendation style:\n"
+        "**Recommendation:**\n"
+        "- Swap Heatsink-1 and Heatsink-2 from Copper C1100 to Aluminum 6061.\n"
+        "- Aluminum's lower density reduces thermal mass, improving the heatsink's ability to respond to rapid temperature changes from the CPU.\n"
+        "- This change typically yields a ~6°C reduction in CPU hotspot temperature during peak 30-second loads, with no loss in overall cooling under steady airflow."
+    )
+
+
 def _format_memory_context(memory_list: list[dict]) -> str:
     """Format session memory facts into a compact context block for the prompt."""
     if not memory_list:
@@ -241,20 +271,7 @@ def call_azure_llm(
     if rules:
         ctx_parts.append(f"PROJECT RULES ({project}):\n{rules}")
     if preset_stage == "initial" and _has_optimized_preset(project):
-        ctx_parts.append(
-            "PASSIVE THERMAL PRESET AVAILABLE: yes\n"
-            "Pre-computed preset = Step A (see project rules): heatsink material swap — Heatsink-1 and Heatsink-2 change to Aluminum 6061.\n"
-            "TRIGGER: respond with {'action': 'apply_optimized'} AND 'mode_switch': 'Thermal Simulation' when the user "
-            "confirms a material swap recommendation (e.g. says 'Apply', 'Commit', 'Yes', 'Do it' after a heatsink "
-            "material change has been suggested in the conversation). "
-            "Do NOT apply on a general question — only on an explicit confirmation.\n"
-            "Do NOT generate move_sequence steps.\n"
-            "Explain in your response with this recommendation style:\n"
-            "**Recommendation:**\n"
-            "- Swap Heatsink-1 and Heatsink-2 from Copper C1100 to Aluminum 6061.\n"
-            "- Aluminum's lower density reduces thermal mass, improving the heatsink's ability to respond to rapid temperature changes from the CPU.\n"
-            "- This change typically yields a ~6°C reduction in CPU hotspot temperature during peak 30-second loads, with no loss in overall cooling under steady airflow."
-        )
+        ctx_parts.append(_load_optimized_hint(project))
     if preset_stage == "optimized" and _has_thermal_optimized_preset(project):
         ctx_parts.append(
             "THERMAL PRESET AVAILABLE: yes\n"
