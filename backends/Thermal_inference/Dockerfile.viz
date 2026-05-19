@@ -1,0 +1,14 @@
+# Dockerfile.viz
+# Extends the physicsnemo image with the lightweight UI dependencies.
+# Inference runs in-process (no subprocess Docker call needed).
+
+FROM data-service.inventec.com:1443/physicsnemo:latest
+
+# Add Streamlit + Plotly on top of the existing physicsnemo environment
+RUN pip install --no-cache-dir streamlit plotly
+
+WORKDIR /workspace
+EXPOSE 8502
+
+CMD ["streamlit", "run", "thermal_viz_app.py", \
+     "--server.port=8502", "--server.address=0.0.0.0"]

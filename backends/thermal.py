@@ -33,6 +33,8 @@ from backends import BackendResult
 # ── Component thermal defaults ─────────────────────────────────────────────────
 # Default steady-state temperatures (°C) used for Thermal 3D colouring.
 # Keys are lowercase component names (matched case-insensitively in app.py).
+# NOTE: for the heatsink project specifically, temperatures are overridden by
+# the PINN inference result inside thermal_sim.py (pinn_heatsink module).
 COMPONENT_TEMPS: dict[str, float] = {
     "cpu":      80.0,
     "heatsink": 55.0,

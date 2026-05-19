@@ -46,6 +46,8 @@ import math
 
 import numpy as np
 
+from backends import pinn_heatsink as _pinn
+
 
 # ── Physics tables ────────────────────────────────────────────────────────────
 
@@ -83,6 +85,10 @@ _DEFAULT_BASE_DELTA: float = 15.0   # 25 + 15 = 40 °C for unrecognised types
 # Component names containing these substrings are treated as passive
 # heatsinks / spreaders: they add no heat themselves but cool neighbours.
 _HEATSINK_KEYWORDS: tuple[str, ...] = ("fin", "heatsink", "spreader", "cooler", "sink")
+
+# Component name substrings that identify heatsink body parts in the
+# heatsink project (fin array, heat pipes, copper base, crossbars).
+_HS_BODY_KEYWORDS: tuple[str, ...] = ("fin", "hp", "cu-base", "xbar")
 
 
 
@@ -252,10 +258,65 @@ def run_simulation(
                                comp["r"], comp["c"],
                                sr, sc, delta).astype(np.float32)
 
+    if live_positions is not None and project_name == "heatsink" and _pinn.is_available():
+        _apply_pinn_heatsink_overlay(field, live_positions, board_w, board_h)
+
     rng = np.random.default_rng(42)
     field += rng.normal(0, 0.3, field.shape).astype(np.float32)
     field = np.clip(field, 20.0, 120.0)
     return field
+
+
+def _apply_pinn_heatsink_overlay(
+    field: np.ndarray,
+    live_positions: dict,
+    board_w: float,
+    board_h: float,
+) -> None:
+    """
+    Overwrite heatsink-body pixels in *field* with PINN-derived temperatures.
+
+    Mapping:
+      PINN x (flow direction, nx points) → board Y-axis of each heatsink part.
+      PINN y (fin height)               → averaged out (top-down view).
+
+    Only components whose name contains a substring from _HS_BODY_KEYWORDS
+    are overwritten (fin-array, hp-*, cu-base, hp-xbar-*).
+    """
+    profile = _pinn.get_flow_profile()   # shape (nx,), °C along flow direction
+    nx = len(profile)
+
+    for name, comp in live_positions.items():
+        if name == "_board":
+            continue
+        n = name.lower()
+        if not any(kw in n for kw in _HS_BODY_KEYWORDS):
+            continue
+
+        w = comp.get("h", 0) if comp.get("rotated") else comp.get("w", 0)
+        h = comp.get("w", 0) if comp.get("rotated") else comp.get("h", 0)
+        if w <= 0 or h <= 0:
+            continue
+
+        # Centre → corners in board mm
+        x0 = float(comp["x"]) - w / 2
+        y0 = float(comp["y"]) - h / 2
+
+        # Convert to grid pixel indices
+        col0 = max(0, int(x0 * (_W / board_w)))
+        col1 = min(_W, int((x0 + w) * (_W / board_w)) + 1)
+        row0 = max(0, int(y0 * (_H / board_h)))
+        row1 = min(_H, int((y0 + h) * (_H / board_h)) + 1)
+
+        if col1 <= col0 or row1 <= row0:
+            continue
+
+        # Interpolate PINN flow-direction profile onto this component's row extent
+        y_fracs = np.linspace(0.0, 1.0, row1 - row0, dtype=np.float32)
+        temps = np.interp(y_fracs, np.linspace(0.0, 1.0, nx), profile)
+
+        # Paint — columns are uniform (one z-slice, no x variation)
+        field[row0:row1, col0:col1] = temps[:, np.newaxis]
 
 
 def get_component_positions(
@@ -278,14 +339,40 @@ def get_component_positions(
     """
     if live_positions is not None:
         result = {}
+
+        # For the heatsink project, look up each component's temperature from
+        # the PINN flow-direction profile at its board-y position.
+        pinn_profile: np.ndarray | None = None
+        hs_y0: float = 0.0
+        hs_y1: float = 1.0
+        if project_name == "heatsink" and _pinn.is_available():
+            pinn_profile = _pinn.get_flow_profile()   # (nx,) °C
+            hs_comps = [
+                comp for nm, comp in live_positions.items()
+                if nm != "_board" and any(kw in nm.lower() for kw in _HS_BODY_KEYWORDS)
+            ]
+            if hs_comps:
+                hs_y0 = min(float(c["y"]) - float(c.get("h", 0)) / 2 for c in hs_comps)
+                hs_y1 = max(float(c["y"]) + float(c.get("h", 0)) / 2 for c in hs_comps)
+
         for name, comp in live_positions.items():
             if name == "_board":
                 continue
-            delta = _effective_delta(name, comp, live_positions)
+            n = name.lower()
+            if pinn_profile is not None and any(kw in n for kw in _HS_BODY_KEYWORDS):
+                # Interpolate PINN profile at this component's centre y
+                cy = float(comp["y"])
+                span = max(hs_y1 - hs_y0, 1e-6)
+                y_frac = max(0.0, min(1.0, (cy - hs_y0) / span))
+                nx = len(pinn_profile)
+                T = round(float(np.interp(y_frac, np.linspace(0.0, 1.0, nx), pinn_profile)), 1)
+            else:
+                delta = _effective_delta(name, comp, live_positions)
+                T = round(_AMBIENT + delta, 1)
             result[name] = {
                 "x": float(comp["x"]),
                 "y": float(comp["y"]),
-                "T": round(_AMBIENT + delta, 1),
+                "T": T,
             }
         return result
 
