@@ -6,9 +6,50 @@ This section describes how to deploy the app on a remote server or VM using the 
 ### Prerequisites
 
 - Docker installed on the target machine
-- A running Ollama instance with `gemma:2b`.
+- A running Ollama instance with the required model pulled.
 
-### 1. Log in to Docker Hub
+### 1. Install Ollama
+
+Run the official one-line installer on the target machine:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+After installation, Ollama starts automatically as a systemd service. Verify it is running:
+
+```bash
+ollama list
+```
+
+Pull the model used by the app:
+
+```bash
+ollama pull qwen3:14b
+```
+
+By default Ollama listens on `127.0.0.1:11434`. To make it reachable from Docker containers (which use the host's `172.17.0.1` bridge address), set the bind address before starting:
+
+```bash
+# Add to /etc/systemd/system/ollama.service.d/override.conf
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11435"
+```
+
+Then reload and restart:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+Confirm it is reachable:
+
+```bash
+curl http://127.0.0.1:11435/api/tags
+```
+
+### 2. Log in to Docker Hub
 
 ```bash
 docker login
@@ -16,14 +57,14 @@ docker login
 
 Enter your Docker Hub username and password when prompted. This is required to pull the image.
 
-### 2. Create a `.env` file
+### 3. Create a `.env` file
 
 The `.env` file holds secrets that **must not be committed to version control**. Create it manually on the target machine:
 
 ```bash
 cat > .env << 'EOF'
 OLLAMA_ENDPOINT=http://172.17.0.1:11435
-OLLAMA_MODEL=gemma:2b
+OLLAMA_MODEL=qwen3:14b
 EOF
 ```
 
@@ -32,7 +73,7 @@ Keep the `.env` file private — it is already listed in `.gitignore`.
 > **Why not commit `.env`?**  
 > While Ollama doesn't use billing keys, it is best practice to keep environment-specific configuration separate.
 
-### 3. Pull and run the image
+### 4. Pull and run the image
 
 Create a `docker-compose.yml` on the target machine (no source code needed):
 
@@ -59,7 +100,7 @@ docker compose up -d         # start in detached mode
 
 Access the app at `http://<host-ip>:8601`.
 
-### 4. Updating to a newer image
+### 5. Updating to a newer image
 
 ```bash
 docker compose pull
