@@ -279,7 +279,11 @@ def call_llm(
             "Do NOT generate move_sequence steps.\n"
             "Explain in your response:\n"
             "**Further Recommendation:**\n"
-            "- Integrate 3× 6 mm sintered copper heat pipes (Heatsink-HP-1, 2, 3) bridging the CPU cold-plate directly to the rear fin stack.\n"
+            "Based on the current simulation result, I found that this case is outside the coverage of my training dataset.\n"
+            "The model confidence is relatively low, so the prediction may not be reliable enough for engineering decision-making.\n"
+            "I recommend collecting additional simulation data under similar thermal conditions and retraining the model to improve accuracy and coverage.\n"
+            "\n"
+            "Still, I can do something to the best of my knowledge. In my experience, Integrate 3× 6 mm sintered copper heat pipes (Heatsink-HP-1, 2, 3) bridging the CPU cold-plate directly to the rear fin stack.\n"
             "- These heat pipes will rapidly transfer heat away from the CPU, greatly improving peak and sustained cooling performance.\n"
             "- This enhancement typically brings an additional **~11°C reduction in CPU hotspot**, for a total improvement of ~17°C versus the original baseline."
         )
