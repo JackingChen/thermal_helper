@@ -13,7 +13,7 @@ services:
     environment:
       - STREAMLIT_SERVER_FILE_WATCHER_TYPE=poll
       # Ollama configuration
-      - OLLAMA_ENDPOINT=${OLLAMA_ENDPOINT:-http://host.docker.internal:11435}
+      - OLLAMA_ENDPOINT=${OLLAMA_ENDPOINT:-http://172.17.0.1:11435}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma:2b}
     restart: unless-stopped
     deploy:
