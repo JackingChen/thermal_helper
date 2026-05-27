@@ -309,6 +309,8 @@ def call_azure_llm(
     payload = {"model": _DEPLOYMENT, "input": messages}
     _log.info("[LLM] payload: %d messages, ~%d chars",
               len(messages), sum(len(m["content"]) for m in messages))
+    if os.environ.get("LLM_LOG_PROMPT", "").strip() == "1":
+        _log.info("[LLM] full prompt:\n%s", json.dumps(messages, ensure_ascii=False, indent=2))
 
     # ── HTTP request ───────────────────────────────────────────────────────────
     t0 = time.perf_counter()
