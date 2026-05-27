@@ -6,7 +6,7 @@ This section describes how to deploy the app on a remote server or VM using the 
 ### Prerequisites
 
 - Docker installed on the target machine
-- A valid `.env` file with your Azure OpenAI credentials (see below)
+- A running Ollama instance with `gemma:2b`.
 
 ### 1. Log in to Docker Hub
 
@@ -22,16 +22,15 @@ The `.env` file holds secrets that **must not be committed to version control**.
 
 ```bash
 cat > .env << 'EOF'
-AZURE_OPENAI_KEY=<your-key>
-AZURE_OPENAI_ENDPOINT=<your-endpoint>
-AZURE_OPENAI_DEPLOYMENT=<your-deployment-name>
+OLLAMA_ENDPOINT=http://127.0.0.1:11435
+OLLAMA_MODEL=gemma:2b
 EOF
 ```
 
 Keep the `.env` file private — it is already listed in `.gitignore`.
 
 > **Why not commit `.env`?**  
-> Azure OpenAI keys grant billing access. Pushing them to a public (or even private) repository risks credential exposure via git history. Always inject secrets at runtime through environment variables or a secrets manager.
+> While Ollama doesn't use billing keys, it is best practice to keep environment-specific configuration separate.
 
 ### 3. Pull and run the image
 

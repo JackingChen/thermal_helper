@@ -1,7 +1,7 @@
 """
 backends/llm_backend.py
 ────────────────────────
-Azure OpenAI Responses API backend for the Design Assistant.
+Ollama Chat API backend for the Design Assistant.
 
 Credentials are read from environment variables — never hardcode keys:
     AZURE_OPENAI_KEY           API key
@@ -51,12 +51,11 @@ _log = logging.getLogger(__name__)
 
 # ── Config from environment ────────────────────────────────────────────────────
 _ENDPOINT   = os.environ.get(
-    "AZURE_OPENAI_ENDPOINT", "https://gpt4fordg.openai.azure.com"
+    "OLLAMA_ENDPOINT", "http://127.0.0.1:11435"
 ).rstrip("/")
-_API_KEY    = os.environ.get("AZURE_OPENAI_KEY", "")
-_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-_API_URL    = f"{_ENDPOINT}/openai/responses?api-version=2025-04-01-preview"
-_TIMEOUT    = 30  # seconds
+_DEPLOYMENT = os.environ.get("OLLAMA_MODEL", "gemma:2b")
+_API_URL    = f"{_ENDPOINT}/api/chat"
+_TIMEOUT    = 60  # seconds
 
 
 # ── System prompt ──────────────────────────────────────────────────────────────
@@ -224,7 +223,7 @@ def _geometry_context(positions: dict, workspace_mode: str) -> str:
 
 # ── API call ───────────────────────────────────────────────────────────────────
 
-def call_azure_llm(
+def call_llm(
     user_message: str,
     chat_history: list[dict],
     positions: dict,
@@ -234,7 +233,7 @@ def call_azure_llm(
     preset_stage: str = "initial",
 ) -> tuple[str, Optional[dict | str]]:
     """
-    Call the Azure OpenAI Responses API and return (response_text, action).
+    Call the Ollama Chat API and return (response_text, action).
 
     Parameters
     ----------
@@ -247,12 +246,6 @@ def call_azure_llm(
     session_cfg    : Optional OpenClaw session config dict (contains memory facts).
     preset_stage   : Current applied preset stage — "initial" | "optimized" | "optimized_thermal".
     """
-    if not _API_KEY:
-        return (
-            "⚠️ **AI mode unavailable** — `AZURE_OPENAI_KEY` "
-            "environment variable is not set. See `docker-compose.yml`.",
-            None,
-        )
 
     # ── Build message list ─────────────────────────────────────────────────────
     messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
@@ -306,7 +299,7 @@ def call_azure_llm(
     # Current user turn
     messages.append({"role": "user", "content": user_message})
 
-    payload = {"model": _DEPLOYMENT, "input": messages}
+    payload = {"model": _DEPLOYMENT, "messages": messages, "stream": False}
     _log.info("[LLM] payload: %d messages, ~%d chars",
               len(messages), sum(len(m["content"]) for m in messages))
 
@@ -315,7 +308,7 @@ def call_azure_llm(
     try:
         resp = requests.post(
             _API_URL,
-            headers={"Content-Type": "application/json", "api-key": _API_KEY},
+            headers={"Content-Type": "application/json"},
             json=payload,
             timeout=_TIMEOUT,
         )
@@ -326,7 +319,7 @@ def call_azure_llm(
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
         _log.warning("[LLM] HTTP error %s after %.1f s", status, time.perf_counter() - t0)
-        return f"⚠️ **API HTTP error {status}.** Check your endpoint and API key.", None
+        return f"⚠️ **API HTTP error {status}.** Check your endpoint.", None
     except requests.exceptions.RequestException as exc:
         _log.warning("[LLM] network error after %.1f s: %s", time.perf_counter() - t0, exc)
         return f"⚠️ **Network error:** {html.escape(str(exc))}", None
@@ -339,7 +332,7 @@ def call_azure_llm(
     t1 = time.perf_counter()
     try:
         data = resp.json()
-        raw_text = data["output"][0]["content"][0]["text"]
+        raw_text = data.get("message", {}).get("content", "")
     except (KeyError, IndexError, ValueError, TypeError) as exc:
         return (
             f"⚠️ **Unexpected API response format:** {html.escape(str(exc))}",

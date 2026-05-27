@@ -42,7 +42,7 @@ from backends.placement import check_overlaps as _check_overlaps
 from backends.thermal import COMPONENT_TEMPS as _COMPONENT_TEMPS
 from backends.thermal import TEMP_VMIN as _TEMP_VMIN
 from backends.thermal import TEMP_VMAX as _TEMP_VMAX
-from backends.llm_backend import call_azure_llm
+from backends.llm_backend import call_llm
 from chat_responses import route_message
 from qa_loader import load_qa
 from thermal_sim import get_component_positions, run_simulation
@@ -996,9 +996,9 @@ def _handle_chat(user_input: str) -> None:
         with st.spinner("AI Assistant is thinking…"):
             status_box = st.empty()
             status_box.markdown(
-                "_Sending geometry context and chat history to Azure OpenAI…_"
+                "_Sending geometry context and chat history to Ollama…_"
             )
-            response_text, action = call_azure_llm(
+            response_text, action = call_llm(
                 user_input,
                 st.session_state["chat_history"],
                 positions,
@@ -1047,7 +1047,7 @@ def _handle_chat(user_input: str) -> None:
             _session_cfg.log_subagent(
                 cfg, "llm_reasoning_agent",
                 f"user: {user_input[:80]}",
-                "Returned JSON action from Azure OpenAI",
+                "Returned JSON action from Ollama",
             )
         if isinstance(action, tuple):
             preset_act, mode_act = action[0], action[1]

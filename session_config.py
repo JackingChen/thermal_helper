@@ -57,7 +57,7 @@ _DEFAULT_SUBAGENTS: list[dict] = [
     {"name": "thermal_sim_agent", "description": "Runs NumPy thermal field simulation for the active project", "invocations": []},
     {"name": "placement_agent", "description": "Applies preset or delta placement moves to component positions", "invocations": []},
     {"name": "rag_faq_agent", "description": "Retrieves best-match FAQ answer using token-overlap scoring", "invocations": []},
-    {"name": "llm_reasoning_agent", "description": "Azure OpenAI reasoning agent (GPT-4o) for open-ended queries", "invocations": []},
+    {"name": "llm_reasoning_agent", "description": "Ollama reasoning agent (gemma:2b) for open-ended queries", "invocations": []},
 ]
 
 _DEFAULT_AGENT = _YAML_CFG.get("agent", {

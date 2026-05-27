@@ -37,7 +37,7 @@ thermal_helper/
 │   ├── __init__.py         # BackendResult dataclass
 │   ├── placement.py        # Placement backend stub (future: solver)
 │   ├── thermal.py          # Thermal backend stub (future: RC-network solver)
-│   ├── llm_backend.py      # Azure OpenAI Responses API client
+│   ├── llm_backend.py      # Ollama API client
 │   ├── pinn_heatsink.py    # PINN field loader for heatsink project (copper + aluminum)
 │   └── Thermal_inference/  # PINN model weights + one-off extraction scripts
 │       ├── infer_thermal_solid.py          # FourierNetArch inference helper
@@ -69,7 +69,7 @@ thermal_helper/
 
 | Concern | Approach |
 |---|---|
-| Chat logic | Keyword regex routing (`chat_responses.py`) or live Azure OpenAI call (`llm_backend.py`) |
+| Chat logic | Keyword regex routing (`chat_responses.py`) or live Ollama call (`llm_backend.py`) |
 | Thermal simulation | In-process NumPy Gaussian field + PINN overlay for heatsink project |
 | PINN inference | FourierNetArch (PhysicsNeMo) run once offline; result cached as `.npy` in `assets/` |
 | FAQ retrieval | CSV keyword-overlap scoring via `qa_loader.find_answer()` |
