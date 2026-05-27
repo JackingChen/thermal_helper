@@ -302,6 +302,7 @@ def call_llm(
     payload = {"model": _DEPLOYMENT, "messages": messages, "stream": False}
     _log.info("[LLM] payload: %d messages, ~%d chars",
               len(messages), sum(len(m["content"]) for m in messages))
+    _log.debug("[LLM] full prompt:\n%s", json.dumps(messages, ensure_ascii=False, indent=2))
 
     # ── HTTP request ───────────────────────────────────────────────────────────
     t0 = time.perf_counter()
