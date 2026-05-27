@@ -22,7 +22,7 @@ The `.env` file holds secrets that **must not be committed to version control**.
 
 ```bash
 cat > .env << 'EOF'
-OLLAMA_ENDPOINT=http://127.0.0.1:11435
+OLLAMA_ENDPOINT=http://172.17.0.1:11435
 OLLAMA_MODEL=gemma:2b
 EOF
 ```
