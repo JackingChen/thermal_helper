@@ -120,7 +120,7 @@ This section describes how to deploy the app on a remote server or VM using the 
 ### Prerequisites
 
 - Docker installed on the target machine
-- A valid `.env` file with your Azure OpenAI credentials (see below)
+- A running Ollama instance with the `gemma:2b` model.
 
 ### 1. Log in to Docker Hub
 
@@ -200,7 +200,7 @@ docker run -d \
 
 ## AI Prompting Scheme
 
-The AI Assistant uses Azure OpenAI via the Responses API (`POST /openai/responses?api-version=2025-04-01-preview`). Each request builds a message list with four layers, assembled in `backends/llm_backend.py`.
+The AI Assistant uses Ollama via the Chat API (`POST /api/chat`). Each request builds a message list with four layers, assembled in `backends/llm_backend.py`.
 
 ### Message structure
 
