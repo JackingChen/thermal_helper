@@ -127,7 +127,14 @@ _SCENARIO_1_TEXT = """\
 - This change typically yields a ~6°C reduction in CPU hotspot temperature during peak 30-second loads, with no loss in overall cooling under steady airflow.\
 """
 
-_SCENARIO_2_TEXT = "Applying the aluminum material swap and switching to the thermal simulation view..."
+_SCENARIO_2_TEXT = """\
+Applying the recommended heatsink material swap…
+- Replacing Fin-1 and Fin-2 from Copper C1100 to Aluminum 6061
+- Updating material properties (conductivity, density, thermal mass)
+- Re-running PINN thermal prediction with aluminum model
+
+✅ **Aluminum heatsink applied.** Switching to Thermal Simulation view.\
+"""
 
 _SCENARIO_3_TEXT = """\
 Based on the current simulation result, I found that this case is outside the coverage of my training dataset.
@@ -138,17 +145,24 @@ Still, i can do somthing to the best of my knowledge. In my experience, Integrat
 bridging the CPU cold-plate directly to the rear fin stack.\
 """
 
-_SCENARIO_4_TEXT = "Applying the heat pipe enhancements to the layout..."
+_SCENARIO_4_TEXT = """\
+Applying the heat pipe enhancement…
+- Integrating 3× 6 mm sintered copper heat pipes (Heatsink-HP-1, 2, 3)
+- Bridging the CPU cold-plate directly to the rear fin stack
+- Re-running thermal simulation with updated layout
+
+✅ **Heat pipe layout applied.** Switching to Thermal Simulation view.\
+"""
 
 _SEMANTIC_ROUTES = [
     {
-        "query": "The CPU is overheating, please analyze the current thermal bottleneck.",
+        "query": "The CPU temperature exceeds the limit, help me optimize the thermal design.",
         "response": _SCENARIO_1_TEXT,
         "action": None,
         "required_stage": "initial"
     },
     {
-        "query": "Apply.",
+        "query": "Go ahead and apply it.",
         "response": _SCENARIO_2_TEXT,
         "action": ("apply_optimized", "switch_thermal"),
         "required_stage": "initial"
@@ -164,7 +178,32 @@ _SEMANTIC_ROUTES = [
         "response": _SCENARIO_4_TEXT,
         "action": ("apply_optimized_thermal", "switch_thermal"),
         "required_stage": "optimized"
-    }
+    },
+    # ── Scenario 2 ────────────────────────────────────────────────────────────
+    {
+        "query": "Please give me thermal optimization suggestions for the CPU.",
+        "response": _SCENARIO_1_TEXT,
+        "action": None,
+        "required_stage": "initial"
+    },
+    {
+        "query": "Do it.",
+        "response": _SCENARIO_2_TEXT,
+        "action": ("apply_optimized", "switch_thermal"),
+        "required_stage": "initial"
+    },
+    {
+        "query": "Refer to past projects with high-performance, thin-and-light thermal designs and propose a new suggestion.",
+        "response": _SCENARIO_3_TEXT,
+        "action": None,
+        "required_stage": "optimized"
+    },
+    {
+        "query": "OK, let's do it this way.",
+        "response": _SCENARIO_4_TEXT,
+        "action": ("apply_optimized_thermal", "switch_thermal"),
+        "required_stage": "optimized"
+    },
 ]
 
 _encoder = None
