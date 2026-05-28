@@ -1010,7 +1010,12 @@ def _handle_chat(user_input: str) -> None:
             status_box.markdown("_Parsing response…_")
             status_box.empty()
     else:
-        response_text, action = route_message(user_input, mode, _qa_data)
+        response_text, action = route_message(
+            user_input, 
+            mode, 
+            _qa_data, 
+            st.session_state.get("preset_stage", "initial")
+        )
 
     # Execute workspace actions
     if isinstance(action, tuple) and project:

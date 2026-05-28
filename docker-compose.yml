@@ -1,19 +1,13 @@
 services:
-  thermal-helper:
-    build:
-      context: .
-      tags:
-        - thermal_helper
-    image: thermal_helper
-    container_name: thermal-helper
+  thermal-helper-dev:
+    image: jackingchen120955/thermal_helper:latest
+    container_name: thermal-helper-dev
     ports:
-      - "8601:8501"
+      - "8602:8501"
     volumes:
       - .:/app
     environment:
       - STREAMLIT_SERVER_FILE_WATCHER_TYPE=poll
-      # Azure OpenAI credentials — set these before running
-      # Alternatively create a .env file: AZURE_OPENAI_KEY=your_key_here
       - AZURE_OPENAI_KEY=${AZURE_OPENAI_KEY:-}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-https://gpt4fordg.openai.azure.com}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4o}

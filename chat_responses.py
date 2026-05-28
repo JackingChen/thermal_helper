@@ -5,7 +5,7 @@ All scripted chat text and routing logic.
 
 Public API
 ──────────
-    route_message(user_input: str, mode: str) -> tuple[str, str | None]
+    route_message(user_input: str, mode: str, qa_data: list | None = None, preset_stage: str = "initial") -> tuple[str, str | tuple | dict | None]
 
 Returns
 ───────
@@ -120,6 +120,91 @@ Please provide more details or try rephrasing your question.\
 """
 
 
+_SCENARIO_1_TEXT = """\
+**Recommendation:**
+- Swap Heatsink-1 and Heatsink-2 from Copper C1100 to Aluminum 6061.
+- Aluminum's lower density reduces thermal mass, improving the heatsink's ability to respond to rapid temperature changes from the CPU.
+- This change typically yields a ~6°C reduction in CPU hotspot temperature during peak 30-second loads, with no loss in overall cooling under steady airflow.\
+"""
+
+_SCENARIO_2_TEXT = "Applying the aluminum material swap and switching to the thermal simulation view..."
+
+_SCENARIO_3_TEXT = """\
+Based on the current simulation result, I found that this case is outside the coverage of my training dataset.
+The model confidence is relatively low, so the prediction may not be reliable enough for engineering decision-making.
+I recommend collecting additional simulation data under similar thermal conditions and retraining the model to improve accuracy and coverage.
+
+Still, i can do somthing to the best of my knowledge. In my experience, Integrate 3× 6 mm sintered copper heat pipes (Heatsink-HP-1, 2, 3) 
+bridging the CPU cold-plate directly to the rear fin stack.\
+"""
+
+_SCENARIO_4_TEXT = "Applying the heat pipe enhancements to the layout..."
+
+_SEMANTIC_ROUTES = [
+    {
+        "query": "The CPU is overheating, please analyze the current thermal bottleneck.",
+        "response": _SCENARIO_1_TEXT,
+        "action": None,
+        "required_stage": "initial"
+    },
+    {
+        "query": "Apply.",
+        "response": _SCENARIO_2_TEXT,
+        "action": ("apply_optimized", "switch_thermal"),
+        "required_stage": "initial"
+    },
+    {
+        "query": "Based on existing heat pipe / dual-zone heat spreading design cases, give me a better solution than the current one.",
+        "response": _SCENARIO_3_TEXT,
+        "action": None,
+        "required_stage": "optimized"
+    },
+    {
+        "query": "Apply.",
+        "response": _SCENARIO_4_TEXT,
+        "action": ("apply_optimized_thermal", "switch_thermal"),
+        "required_stage": "optimized"
+    }
+]
+
+_encoder = None
+_SEMANTIC_EMBEDDINGS = None
+
+def _get_semantic_match(user_input: str, preset_stage: str):
+    try:
+        from sentence_transformers import SentenceTransformer, util
+        import torch
+    except ImportError:
+        return None, None
+        
+    global _encoder, _SEMANTIC_EMBEDDINGS
+    if _encoder is None:
+        _encoder = SentenceTransformer("all-MiniLM-L6-v2")
+        
+    if _SEMANTIC_EMBEDDINGS is None:
+        queries = [r["query"] for r in _SEMANTIC_ROUTES]
+        _SEMANTIC_EMBEDDINGS = _encoder.encode(queries, convert_to_tensor=True)
+        
+    user_emb = _encoder.encode(user_input, convert_to_tensor=True)
+    cos_scores = util.cos_sim(user_emb, _SEMANTIC_EMBEDDINGS)[0]
+    
+    # Sort indices by score descending
+    sorted_indices = torch.argsort(cos_scores, descending=True)
+    
+    for idx in sorted_indices:
+        idx = idx.item()
+        score = cos_scores[idx].item()
+        if score < 0.75:
+            break  # since it's sorted, remaining scores are lower
+            
+        route = _SEMANTIC_ROUTES[idx]
+        if not route.get("required_stage") or route["required_stage"] == preset_stage:
+            return route["response"], route["action"]
+            
+    return None, None
+
+
+
 # ── Keyword patterns  ──────────────────────────────────────────────────────────
 
 def _match(text: str, *patterns: str) -> bool:
@@ -136,7 +221,8 @@ def route_message(
     user_input: str,
     mode: str = "Modeling",
     qa_data: list | None = None,
-) -> tuple[str, Optional[str]]:
+    preset_stage: str = "initial",
+) -> tuple[str, Optional[str | tuple | dict]]:
     """
     Keyword-route user input to a scripted response + optional workspace action.
 
@@ -154,6 +240,11 @@ def route_message(
     (response_text, workspace_action)
     """
     txt = user_input.strip()
+
+    # ── Semantic text similarity triggers ──────────────────────────────────────
+    semantic_response, semantic_action = _get_semantic_match(txt, preset_stage)
+    if semantic_response is not None:
+        return semantic_response, semantic_action
 
     # ── Exact / near-exact script triggers ────────────────────────────────────
     if _match(
