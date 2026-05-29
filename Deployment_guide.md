@@ -8,6 +8,11 @@ This section describes how to deploy the app on a remote server or VM using the 
 - Docker installed on the target machine
 - A running Ollama instance with the required model pulled.
 
+### 0. Please first cd to the path of directory
+```bash
+cd /path/to/your/directory
+```
+
 ### 1. Install Ollama
 
 Run the official one-line installer on the target machine:
@@ -122,5 +127,6 @@ docker run -d \
   --env-file .env \
   -e STREAMLIT_SERVER_FILE_WATCHER_TYPE=poll \
   --restart unless-stopped \
+  -v .:/app\
   jackingchen120955/thermal_helper:latest
 ```
