@@ -84,6 +84,8 @@ services:
     container_name: thermal-helper
     ports:
       - "8601:8501"
+    volumes:
+      - .:/app
     env_file:
       - .env
     environment:
